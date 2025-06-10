@@ -6,10 +6,10 @@ import numpy as np
 import mne
 
 
-drop_channels = ['PHOTIC-REF', 'IBI', 'BURSTS', 'SUPPR', 'EEG ROC-REF', 'EEG LOC-REF', 'EEG EKG1-REF', 'EMG-REF', 'EEG C3P-REF', 'EEG C4P-REF', 'EEG SP1-REF', 'EEG SP2-REF', \
+drop_channels = ['PHOTIC-REF', 'IBI', 'BURSTS', 'SUPPR', 'EEG ROC-REF', 'EEG LOC-REF', 'EEG EKG1-REF', 'EMG-REF', 'EEG C3P-REF', 'EEG C4P-REF', 'EEG SP1-REF', 'EEG SP2-REF',
                  'EEG LUC-REF', 'EEG RLC-REF', 'EEG RESP1-REF', 'EEG RESP2-REF', 'EEG EKG-REF', 'RESP ABDOMEN-REF', 'ECG EKG-REF', 'PULSE RATE', 'EEG PG2-REF', 'EEG PG1-REF']
 drop_channels.extend([f'EEG {i}-REF' for i in range(20, 129)])
-chOrder_standard = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', \
+chOrder_standard = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF',
                     'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
 
 standard_channels = [
@@ -71,7 +71,8 @@ def split_and_dump(params):
                     dump_folder, file.split(".")[0] + "_" + str(i) + ".pkl"
                 )
                 pickle.dump(
-                    {"X": channeled_data[:, i * 2000 : (i + 1) * 2000], "y": label},
+                    {"X": channeled_data[:, i *
+                                         2000: (i + 1) * 2000], "y": label},
                     open(dump_path, "wb"),
                 )
 
@@ -81,7 +82,7 @@ if __name__ == "__main__":
     TUAB dataset is downloaded from https://isip.piconepress.com/projects/tuh_eeg/html/downloads.shtml
     """
     # root to abnormal dataset
-    root = "../datasets/downstream/tuh_eeg_abnormal/v3.0.0/edf/"
+    root = "/content/drive/MyDrive/Datasets/TUAB/v3.0.1/edf/"
     channel_std = "01_tcp_ar"
 
     # train, val abnormal subjects
@@ -92,7 +93,7 @@ if __name__ == "__main__":
     np.random.shuffle(train_val_a_sub)
     train_a_sub, val_a_sub = (
         train_val_a_sub[: int(len(train_val_a_sub) * 0.8)],
-        train_val_a_sub[int(len(train_val_a_sub) * 0.8) :],
+        train_val_a_sub[int(len(train_val_a_sub) * 0.8):],
     )
 
     # train, val normal subjects
@@ -103,16 +104,18 @@ if __name__ == "__main__":
     np.random.shuffle(train_val_n_sub)
     train_n_sub, val_n_sub = (
         train_val_n_sub[: int(len(train_val_n_sub) * 0.8)],
-        train_val_n_sub[int(len(train_val_n_sub) * 0.8) :],
+        train_val_n_sub[int(len(train_val_n_sub) * 0.8):],
     )
 
     # test abnormal subjects
     test_abnormal = os.path.join(root, "eval", "abnormal", channel_std)
-    test_a_sub = list(set([item.split("_")[0] for item in os.listdir(test_abnormal)]))
+    test_a_sub = list(set([item.split("_")[0]
+                      for item in os.listdir(test_abnormal)]))
 
     # test normal subjects
     test_normal = os.path.join(root, "eval", "normal", channel_std)
-    test_n_sub = list(set([item.split("_")[0] for item in os.listdir(test_normal)]))
+    test_n_sub = list(set([item.split("_")[0]
+                      for item in os.listdir(test_normal)]))
 
     # create the train, val, test sample folder
     if not os.path.exists(os.path.join(root, "processed")):
@@ -133,7 +136,8 @@ if __name__ == "__main__":
     # fetch_folder, sub, dump_folder, labels
     parameters = []
     for train_sub in train_a_sub:
-        parameters.append([train_val_abnormal, train_sub, train_dump_folder, 1])
+        parameters.append(
+            [train_val_abnormal, train_sub, train_dump_folder, 1])
     for train_sub in train_n_sub:
         parameters.append([train_val_normal, train_sub, train_dump_folder, 0])
     for val_sub in val_a_sub:
