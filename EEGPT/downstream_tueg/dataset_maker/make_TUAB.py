@@ -149,7 +149,11 @@ if __name__ == "__main__":
     for test_sub in test_n_sub:
         parameters.append([test_normal, test_sub, test_dump_folder, 0])
 
-    # split and dump in parallel
-    with Pool(processes=24) as pool:
-        # Use the pool.map function to apply the square function to each element in the numbers list
-        result = pool.map(split_and_dump, parameters)
+    # # split and dump in parallel
+    # with Pool(processes=24) as pool:
+    #     # Use the pool.map function to apply the square function to each element in the numbers list
+    #     result = pool.map(split_and_dump, parameters)
+
+    # Use a loop:
+    for args in parameters:
+        split_and_dump(args)
