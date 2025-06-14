@@ -19,7 +19,7 @@ import torch.distributed as dist
 from torch import inf
 import h5py
 
-# from tensorboardX import SummaryWriter
+from tensorboardX import SummaryWriter
 import pickle
 from scipy.signal import resample
 from pyhealth.metrics import binary_metrics_fn, multiclass_metrics_fn
