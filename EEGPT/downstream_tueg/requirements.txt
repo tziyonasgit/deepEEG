@@ -2,7 +2,6 @@ timm==0.4.12
 Pillow
 blobfile
 mypy
-numpy
 pytest
 requests
 einops
@@ -12,3 +11,6 @@ pyhealth==1.1.4
 h5py
 mne==1.4.2
 torch
+nump==2.3.0 
+pandas==2.3.0
+scikit-learn==1.7.0
