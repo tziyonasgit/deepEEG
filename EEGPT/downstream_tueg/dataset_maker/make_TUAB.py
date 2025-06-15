@@ -82,7 +82,7 @@ if __name__ == "__main__":
     TUAB dataset is downloaded from https://isip.piconepress.com/projects/tuh_eeg/html/downloads.shtml
     """
     # root to abnormal dataset
-    root = "/content/drive/MyDrive/Datasets/TUAB/v3.0.1/edf/"
+    root = "/content/drive/MyDrive/TUAB/v3.0.1/edf/"
     channel_std = "01_tcp_ar"
 
     # train, val abnormal subjects
@@ -135,25 +135,53 @@ if __name__ == "__main__":
 
     # fetch_folder, sub, dump_folder, labels
     parameters = []
+    # TRAIN
+    train_params = []
     for train_sub in train_a_sub:
-        parameters.append(
+        train_params.append(
             [train_val_abnormal, train_sub, train_dump_folder, 1])
     for train_sub in train_n_sub:
-        parameters.append([train_val_normal, train_sub, train_dump_folder, 0])
+        train_params.append(
+            [train_val_normal, train_sub, train_dump_folder, 0])
+    np.random.shuffle(train_params)
+    parameters.extend(train_params[:10])
+
+    # VAL
+    val_params = []
     for val_sub in val_a_sub:
-        parameters.append([train_val_abnormal, val_sub, val_dump_folder, 1])
+        val_params.append([train_val_abnormal, val_sub, val_dump_folder, 1])
     for val_sub in val_n_sub:
-        parameters.append([train_val_normal, val_sub, val_dump_folder, 0])
+        val_params.append([train_val_normal, val_sub, val_dump_folder, 0])
+    np.random.shuffle(val_params)
+    parameters.extend(val_params[:10])
+
+    # TEST
+    test_params = []
     for test_sub in test_a_sub:
-        parameters.append([test_abnormal, test_sub, test_dump_folder, 1])
+        test_params.append([test_abnormal, test_sub, test_dump_folder, 1])
     for test_sub in test_n_sub:
-        parameters.append([test_normal, test_sub, test_dump_folder, 0])
+        test_params.append([test_normal, test_sub, test_dump_folder, 0])
+    np.random.shuffle(test_params)
+    parameters.extend(test_params[:10])
+# for train_sub in train_a_sub:
+#     parameters.append(
+#         [train_val_abnormal, train_sub, train_dump_folder, 1])
+# for train_sub in train_n_sub:
+#     parameters.append([train_val_normal, train_sub, train_dump_folder, 0])
+# for val_sub in val_a_sub:
+#     parameters.append([train_val_abnormal, val_sub, val_dump_folder, 1])
+# for val_sub in val_n_sub:
+#     parameters.append([train_val_normal, val_sub, val_dump_folder, 0])
+# for test_sub in test_a_sub:
+#     parameters.append([test_abnormal, test_sub, test_dump_folder, 1])
+# for test_sub in test_n_sub:
+#     parameters.append([test_normal, test_sub, test_dump_folder, 0])
 
-    # # split and dump in parallel
-    # with Pool(processes=24) as pool:
-    #     # Use the pool.map function to apply the square function to each element in the numbers list
-    #     result = pool.map(split_and_dump, parameters)
+# # split and dump in parallel
+# with Pool(processes=24) as pool:
+#     # Use the pool.map function to apply the square function to each element in the numbers list
+#     result = pool.map(split_and_dump, parameters)
 
-    # Use a loop:
-    for args in parameters:
-        split_and_dump(args)
+# Use a loop:
+for args in parameters:
+    split_and_dump(args)
