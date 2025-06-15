@@ -90,32 +90,36 @@ if __name__ == "__main__":
     train_val_a_sub = list(
         set([item.split("_")[0] for item in os.listdir(train_val_abnormal)])
     )
-    np.random.shuffle(train_val_a_sub)
-    train_a_sub, val_a_sub = (
-        train_val_a_sub[: int(len(train_val_a_sub) * 0.8)],
-        train_val_a_sub[int(len(train_val_a_sub) * 0.8):],
-    )
+    # np.random.shuffle(train_val_a_sub)
+    # train_a_sub, val_a_sub = (
+    #     train_val_a_sub[: int(len(train_val_a_sub) * 0.8)],
+    #     train_val_a_sub[int(len(train_val_a_sub) * 0.8):],
+    # )
 
     # train, val normal subjects
     train_val_normal = os.path.join(root, "train", "normal", channel_std)
     train_val_n_sub = list(
         set([item.split("_")[0] for item in os.listdir(train_val_normal)])
     )
-    np.random.shuffle(train_val_n_sub)
-    train_n_sub, val_n_sub = (
-        train_val_n_sub[: int(len(train_val_n_sub) * 0.8)],
-        train_val_n_sub[int(len(train_val_n_sub) * 0.8):],
-    )
+
+    train_a_sub = train_val_a_sub[:2]
+    train_n_sub = train_val_n_sub[:2]
+
+    # np.random.shuffle(train_val_n_sub)
+    # train_n_sub, val_n_sub = (
+    #     train_val_n_sub[: int(len(train_val_n_sub) * 0.8)],
+    #     train_val_n_sub[int(len(train_val_n_sub) * 0.8):],
+    # )
 
     # test abnormal subjects
-    test_abnormal = os.path.join(root, "eval", "abnormal", channel_std)
-    test_a_sub = list(set([item.split("_")[0]
-                      for item in os.listdir(test_abnormal)]))
+    # test_abnormal = os.path.join(root, "eval", "abnormal", channel_std)
+    # test_a_sub = list(set([item.split("_")[0]
+    #                   for item in os.listdir(test_abnormal)]))
 
     # test normal subjects
-    test_normal = os.path.join(root, "eval", "normal", channel_std)
-    test_n_sub = list(set([item.split("_")[0]
-                      for item in os.listdir(test_normal)]))
+    # test_normal = os.path.join(root, "eval", "normal", channel_std)
+    # test_n_sub = list(set([item.split("_")[0]
+    #                   for item in os.listdir(test_normal)]))
 
     # create the train, val, test sample folder
     if not os.path.exists(os.path.join(root, "processed")):
@@ -125,13 +129,13 @@ if __name__ == "__main__":
         os.makedirs(os.path.join(root, "processed", "train"))
     train_dump_folder = os.path.join(root, "processed", "train")
 
-    if not os.path.exists(os.path.join(root, "processed", "val")):
-        os.makedirs(os.path.join(root, "processed", "val"))
-    val_dump_folder = os.path.join(root, "processed", "val")
+    # if not os.path.exists(os.path.join(root, "processed", "val")):
+    #     os.makedirs(os.path.join(root, "processed", "val"))
+    # val_dump_folder = os.path.join(root, "processed", "val")
 
-    if not os.path.exists(os.path.join(root, "processed", "test")):
-        os.makedirs(os.path.join(root, "processed", "test"))
-    test_dump_folder = os.path.join(root, "processed", "test")
+    # if not os.path.exists(os.path.join(root, "processed", "test")):
+    #     os.makedirs(os.path.join(root, "processed", "test"))
+    # test_dump_folder = os.path.join(root, "processed", "test")
 
     # fetch_folder, sub, dump_folder, labels
     parameters = []
@@ -147,22 +151,22 @@ if __name__ == "__main__":
     parameters.extend(train_params[:10])
 
     # VAL
-    val_params = []
-    for val_sub in val_a_sub:
-        val_params.append([train_val_abnormal, val_sub, val_dump_folder, 1])
-    for val_sub in val_n_sub:
-        val_params.append([train_val_normal, val_sub, val_dump_folder, 0])
-    np.random.shuffle(val_params)
-    parameters.extend(val_params[:10])
+    # val_params = []
+    # for val_sub in val_a_sub:
+    #     val_params.append([train_val_abnormal, val_sub, val_dump_folder, 1])
+    # for val_sub in val_n_sub:
+    #     val_params.append([train_val_normal, val_sub, val_dump_folder, 0])
+    # np.random.shuffle(val_params)
+    # parameters.extend(val_params[:10])
 
     # TEST
-    test_params = []
-    for test_sub in test_a_sub:
-        test_params.append([test_abnormal, test_sub, test_dump_folder, 1])
-    for test_sub in test_n_sub:
-        test_params.append([test_normal, test_sub, test_dump_folder, 0])
-    np.random.shuffle(test_params)
-    parameters.extend(test_params[:10])
+    # test_params = []
+    # for test_sub in test_a_sub:
+    #     test_params.append([test_abnormal, test_sub, test_dump_folder, 1])
+    # for test_sub in test_n_sub:
+    #     test_params.append([test_normal, test_sub, test_dump_folder, 0])
+    # np.random.shuffle(test_params)
+    # parameters.extend(test_params[:10])
 # for train_sub in train_a_sub:
 #     parameters.append(
 #         [train_val_abnormal, train_sub, train_dump_folder, 1])
