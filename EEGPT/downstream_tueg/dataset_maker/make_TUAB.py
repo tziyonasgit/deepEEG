@@ -62,10 +62,11 @@ def split_and_dump(params):
                 ch_name = raw.ch_names
                 raw_data = raw.get_data(units='uV')
                 channeled_data = raw_data.copy()
-            except:
+            except Exception as e:
+                print(f"[ERROR] Processing failed for file: {file}")
+                print(f"Reason: {e}")
                 with open("tuab-process-error-files.txt", "a") as f:
-                    f.write(file + "\n")
-                continue
+                    f.write(f"{file}: {str(e)}\n")
             for i in range(channeled_data.shape[1] // 2000):
                 dump_path = os.path.join(
                     dump_folder, file.split(".")[0] + "_" + str(i) + ".pkl"
@@ -82,7 +83,7 @@ if __name__ == "__main__":
     TUAB dataset is downloaded from https://isip.piconepress.com/projects/tuh_eeg/html/downloads.shtml
     """
     # root to abnormal dataset
-    root = "/content/drive/MyDrive/Datasets"
+    root = "/scratch/chntzi001/TUAB"
     channel_std = "01_tcp_ar"
 
     # train, val abnormal subjects
@@ -183,6 +184,6 @@ with Pool(processes=24) as pool:
     # Use the pool.map function to apply the square function to each element in the numbers list
     result = pool.map(split_and_dump, parameters)
 
-# Use a loop:
-for args in parameters:
-    split_and_dump(args)
+# # Use a loop:
+# for args in parameters:
+#     split_and_dump(args)

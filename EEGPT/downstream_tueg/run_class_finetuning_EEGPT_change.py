@@ -175,6 +175,7 @@ def get_args():
                         action='store_true', default=False)
     parser.add_argument('--dataset', default='TUAB', type=str,
                         help='dataset: TUAB | TUEV')
+    parser.set_defaults(distributed=False)
 
     known_args, _ = parser.parse_known_args()
 
@@ -278,7 +279,7 @@ def get_dataset(args):  # ensure directory is changed to correct one when on hpc
 
 
 def main(args, ds_init):
-    utils.init_distributed_mode(args)
+    # utils.init_distributed_mode(args) - not running distributed mode
 
     if ds_init is not None:
         utils.create_ds_config(args)
