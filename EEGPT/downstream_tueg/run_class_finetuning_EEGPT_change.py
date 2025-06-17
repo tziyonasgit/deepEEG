@@ -176,6 +176,8 @@ def get_args():
     parser.add_argument('--dataset', default='TUAB', type=str,
                         help='dataset: TUAB | TUEV')
     parser.set_defaults(distributed=False)
+    parser.add_argument('--fold', default=1, type=int,
+                        help='Fold number for cross-validation')
 
     known_args, _ = parser.parse_known_args()
 
@@ -219,8 +221,16 @@ def get_models(args):
         'P7', 'P3', 'PZ', 'P4', 'P8',
         'O1', 'O2']
 
-    ch_names = ['EEG FP1', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF',
-                'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
+    if args.dataset == "QUERO":
+        ch_names = [
+            'EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF',
+            'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF',
+            'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', 'EEG F8-REF',
+            'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF',
+            'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF']
+    else:
+        ch_names = ['EEG FP1', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF',
+                    'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
     ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
     model = EEGPTClassifier(
         num_classes=args.nb_classes,
@@ -266,15 +276,27 @@ def get_dataset(args):  # ensure directory is changed to correct one when on hpc
     elif args.dataset == 'TUSZ':
         train_dataset, test_dataset, val_dataset = utils.prepare_TUSZ_dataset(
             None)
-
-        # ch_names = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', \
-        #             'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
-        # ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
         ch_names = ['FP1', 'F3', 'C3', 'P3', 'F7', 'T3', 'T5', 'O1', 'FZ',
                     'CZ', 'PZ', 'FP2', 'F4', 'C4', 'P4', 'F8', 'T4', 'T6', 'O2']
         args.nb_classes = 8
         metrics = ["accuracy", "balanced_accuracy",
                    "cohen_kappa", "f1_weighted"]
+
+    elif args.dataset == 'QUERO':
+        train_dataset, test_dataset = utils.prepare_QUERO_dataset(
+            "/scratch/chntzi001/QUERO/processed/", args.fold)
+        ch_names = [
+            'EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF',
+            'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF',
+            'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', 'EEG F8-REF',
+            'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF',
+            'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF'
+        ]
+        ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
+        args.nb_classes = 1
+        metrics = ["accuracy", "balanced_accuracy",
+                   "cohen_kappa", "f1_weighted"]
+        val_dataset = None
     return train_dataset, test_dataset, val_dataset, ch_names, metrics
 
 
@@ -299,6 +321,7 @@ def main(args, ds_init):
     # dataset_train, dataset_test, dataset_val: follows the standard format of torch.utils.data.Dataset.
     # ch_names: list of strings, channel names of the dataset. It should be in capital letters.
     # metrics: list of strings, the metrics you want to use. We utilize PyHealth to implement it.
+
     dataset_train, dataset_test, dataset_val, ch_names, metrics = get_dataset(
         args)
 
@@ -391,31 +414,6 @@ def main(args, ds_init):
                 args.finetune, map_location='cpu', weights_only=False)
 
         print("Load ckpt from %s" % args.finetune)
-        # checkpoint_model = None
-        # for model_key in args.model_key.split('|'):
-        #     if model_key in checkpoint:
-        #         checkpoint_model = checkpoint[model_key]
-        #         print("Load state_dict by model_key = %s" % model_key)
-        #         break
-        # if checkpoint_model is None:
-        #     checkpoint_model = checkpoint
-        # if (checkpoint_model is not None) and (args.model_filter_name != ''):
-        #     all_keys = list(checkpoint_model.keys())
-        #     new_dict = OrderedDict()
-        #     for key in all_keys:
-        #         if key.startswith('student.'):
-        #             new_dict[key[8:]] = checkpoint_model[key]
-        #         else:
-        #             pass
-        #     checkpoint_model = new_dict
-
-        # state_dict = model.state_dict()
-        # for k in ['head.weight', 'head.bias']:
-        #     if k in checkpoint_model and checkpoint_model[k].shape != state_dict[k].shape:
-        #         print(f"Removing key {k} from pretrained checkpoint")
-        #         del checkpoint_model[k]
-
-        # all_keys = list(checkpoint_model.keys())
         checkpoint_model = checkpoint['state_dict']
         utils.load_state_dict(model, checkpoint_model,
                               prefix=args.model_prefix)
@@ -632,6 +630,16 @@ def main(args, ds_init):
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     print('Training time {}'.format(total_time_str))
+
+    if args.output_dir and utils.is_main_process():
+        final_results = {
+            "fold": args.fold if hasattr(args, "fold") else "unknown",
+            "max_val_accuracy": max_accuracy,
+            "max_test_accuracy": max_accuracy_test,
+            "total_training_time": total_time_str,
+        }
+        with open(os.path.join(args.output_dir, "allFoldResults.json"), "w") as f:
+            json.dump(final_results, f, indent=2)
 
 
 if __name__ == '__main__':

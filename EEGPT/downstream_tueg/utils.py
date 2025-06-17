@@ -753,6 +753,27 @@ class TUABLoader(torch.utils.data.Dataset):
         return X, Y
 
 
+class QUEROLoader(torch.utils.data.Dataset):
+    def __init__(self, root, files, sampling_rate=200):
+        self.root = root
+        self.files = files
+        self.default_rate = 200
+        self.sampling_rate = sampling_rate
+
+    def __len__(self):
+        return len(self.files)
+
+    def __getitem__(self, index):
+        sample = pickle.load(
+            open(os.path.join(self.root, self.files[index]), "rb"))
+        X = sample["X"]
+        if self.sampling_rate != self.default_rate:
+            X = resample(X, 10 * self.sampling_rate, axis=-1)
+        Y = sample["y"]
+        X = torch.FloatTensor(X)
+        return X, Y
+
+
 class TUEVLoader(torch.utils.data.Dataset):
     def __init__(self, root, files, sampling_rate=200):
         self.root = root
@@ -818,6 +839,25 @@ def prepare_TUAB_dataset(root):
     val_dataset = TUABLoader(os.path.join(root, "val"), val_files)
     print(len(train_files), len(val_files), len(test_files))
     return train_dataset, test_dataset, val_dataset
+
+
+def prepare_QUERO_dataset(root, foldNum):
+    # set random seed
+    seed = 12345
+    np.random.seed(seed)
+
+    fold_path = os.path.join(root, f"fold_{foldNum}")
+    train_files = os.listdir(os.path.join(fold_path, "train"))
+    np.random.shuffle(train_files)
+    test_files = os.listdir(os.path.join(fold_path, "test"))
+
+    print(len(train_files), len(test_files))
+
+    # prepare training and test data loader
+    train_dataset = QUEROLoader(os.path.join(fold_path, "train"), train_files)
+    test_dataset = QUEROLoader(os.path.join(fold_path, "test"), test_files)
+    print(len(train_files), len(test_files))
+    return train_dataset, test_dataset
 
 
 class IndexDataset(Dataset):
