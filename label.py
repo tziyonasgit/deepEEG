@@ -31,20 +31,26 @@ def splitData():
     ab = 0
     norm = 0
 
-    srcRoot = "/Users/cccohen/QueONDataset"
+    srcRoot = "/Users/cccohen/quero"
+    labelFile = "queroLabels.txt"
 
-    with open('Quero_Subject_IDs.csv', 'r', newline='') as file:
-        csvReader = csv.reader(file)
-        header = next(csvReader)
-        for row in csvReader:
-            id = row[0]
-            srcPath = os.path.join(srcRoot, id)
-            if int(row[6]) >= 25:
-                ab += 1
-                shutil.move(srcPath, os.path.join("abnormal", id))
-            else:
-                norm += 1
-                shutil.move(srcPath, os.path.join("normal", id))
+    with open(labelFile, "w") as f:
+
+        with open('Quero_Subject_IDs.csv', 'r', newline='') as file:
+            csvReader = csv.reader(file)
+            header = next(csvReader)
+            for row in csvReader:
+                id = row[0]
+                srcPath = os.path.join(srcRoot, id)
+                if int(row[6]) >= 25:
+                    ab += 1
+                    shutil.copytree(srcPath, os.path.join("abnormal", id))
+                    f.write(f"{id}\t{1}\n")
+                else:
+                    norm += 1
+                    shutil.copytree(srcPath, os.path.join("normal", id))
+                    f.write(f"{id}\t{0}\n")
+
         print(f"Abnormal patients: {ab}\n")
         print(f"Normal patients: {norm}\n")
 
@@ -66,10 +72,17 @@ def concatenateEDF(folderName):
 
     if rawFiles:
         unifiedEDF = mne.concatenate_raws(rawFiles, preload=True)
-        fileName = str(folderName) + "raw.fif"
+        fileName = str(folderName) + "_raw.fif"
         unifiedEDF.save(fileName, overwrite=True)
     else:
         print("No .edf files found in the directory.")
+
+
+def delete_subfolders(parent_dir):
+    for folder in parent_dir.iterdir():
+        if folder.is_dir():
+            shutil.rmtree(folder)
+            print(f"Deleted folder: {folder}")
 
 
 if __name__ == "__main__":
@@ -87,9 +100,13 @@ if __name__ == "__main__":
     for folder in normalDir.iterdir():
         concatenateEDF(folder)
 
+    # Delete subfolders after processing
+    delete_subfolders(abnormalDir)
+    delete_subfolders(normalDir)
+
     # for folder in abnormalDir.iterdir():
     #     fileName = str(folder) + "raw.fif"
-    #     os.rename(folder, fileName)
+    #     shutil.copy2(folder, fileName)
     # for folder in normalDir.iterdir():
     #     fileName = str(folder) + "raw.fif"
     #     os.rename(folder, fileName)

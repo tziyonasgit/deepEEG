@@ -23,7 +23,7 @@ CUDA_VISIBLE_DEVICES=4,5 OMP_NUM_THREADS=1 python -m torch.distributed.run --npr
         --weight_decay 0.05 \
         --batch_size 100\
         --lr 5e-4 \
-        --update_freq 1 \
+        --update_freq 100 \
         --warmup_epochs 5 \
         --epochs 50 \
         --layer_decay 0.65 \

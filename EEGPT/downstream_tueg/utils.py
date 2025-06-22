@@ -1,3 +1,11 @@
+from scipy.stats import pearsonr
+from sklearn.metrics import mean_squared_error
+from sklearn.metrics import r2_score
+import pandas as pd
+from PyHealth.localpyhealth.metrics import binary_metrics_fn, multiclass_metrics_fn
+from scipy.signal import resample
+import pickle
+from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 import io
@@ -18,15 +26,6 @@ import torch
 import torch.distributed as dist
 from torch import inf
 import h5py
-
-from torch.utils.tensorboard import SummaryWriter
-import pickle
-from scipy.signal import resample
-from pyhealth.metrics import binary_metrics_fn, multiclass_metrics_fn
-import pandas as pd
-from sklearn.metrics import r2_score
-from sklearn.metrics import mean_squared_error
-from scipy.stats import pearsonr
 
 
 standard_1020 = [
@@ -590,7 +589,7 @@ def save_model(args, epoch, model, model_without_ddp, optimizer, loss_scaler, mo
         if epoch == 'best':
             checkpoint_paths = [output_dir /
                                 ('checkpoint-%s.pth' % epoch_name),]
-        elif (epoch + 1) % save_ckpt_freq == 0:
+        elif args.save_ckpt_freq > 0 and (epoch + 1) % save_ckpt_freq == 0:
             checkpoint_paths.append(
                 output_dir / ('checkpoint-%s.pth' % epoch_name))
 
@@ -764,7 +763,7 @@ class QUEROLoader(torch.utils.data.Dataset):
         return len(self.files)
 
     def __getitem__(self, index):
-        sample = pickle.load(
+        sample = pickle.load(  # so one pkl file is a single sample?
             open(os.path.join(self.root, self.files[index]), "rb"))
         X = sample["X"]
         if self.sampling_rate != self.default_rate:
@@ -846,18 +845,33 @@ def prepare_QUERO_dataset(root, foldNum):
     seed = 12345
     np.random.seed(seed)
 
-    fold_path = os.path.join(root, f"fold_{foldNum}")
+    fold_path = os.path.join(root, f"split_{foldNum}")
     train_files = os.listdir(os.path.join(fold_path, "train"))
     np.random.shuffle(train_files)
-    test_files = os.listdir(os.path.join(fold_path, "test"))
+    # technically validation set
+    test_files = os.listdir(os.path.join(fold_path, "val"))
 
     print(len(train_files), len(test_files))
 
     # prepare training and test data loader
     train_dataset = QUEROLoader(os.path.join(fold_path, "train"), train_files)
-    test_dataset = QUEROLoader(os.path.join(fold_path, "test"), test_files)
+    test_dataset = QUEROLoader(os.path.join(fold_path, "val"), test_files)
     print(len(train_files), len(test_files))
     return train_dataset, test_dataset
+
+
+def prepare_test_dataset(root):
+    # set random seed
+    seed = 12345
+    np.random.seed(seed)
+
+    test_files = os.listdir(os.path.join(root, "test"))
+
+    print(len(test_files))
+    # prepare test data loader
+    test_dataset = QUEROLoader(os.path.join(root, "test"), test_files)
+    print(len(test_files))
+    return test_dataset
 
 
 class IndexDataset(Dataset):

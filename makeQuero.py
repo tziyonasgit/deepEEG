@@ -3,10 +3,12 @@ from pathlib import Path
 import pickle
 
 from multiprocessing import Pool
+import random
 import numpy as np
 import mne
 from sklearn.model_selection import StratifiedKFold
 import sys
+import shutil
 
 drop_channels = ['PHOTIC-REF', 'IBI', 'BURSTS', 'SUPPR', 'EEG ROC-REF', 'EEG LOC-REF', 'EEG EKG1-REF', 'EMG-REF', 'EEG C3P-REF', 'EEG C4P-REF', 'EEG SP1-REF', 'EEG SP2-REF',
                  'EEG LUC-REF', 'EEG RLC-REF', 'EEG RESP1-REF', 'EEG RESP2-REF', 'EEG EKG-REF', 'RESP ABDOMEN-REF', 'ECG EKG-REF', 'PULSE RATE', 'EEG PG2-REF', 'EEG PG1-REF', 'EEG 25+-REF', 'EEG 26+-REF', 'EEG 27+-REF']
@@ -90,6 +92,7 @@ def split_and_dump(params):
                 with open("quero-process-error-files.txt", "w") as f:
                     f.write(f"{file}: {str(e)}\n")
 
+            # 2000 data points per sample
             for i in range(channeled_data.shape[1] // 2000):
                 dump_path = os.path.join(
                     dump_folder, file.split(".")[0] + "_" + str(i) + ".pkl"
@@ -116,45 +119,56 @@ if __name__ == "__main__":
     """
 
     # root to dataset
-    root = "/Users/cccohen/deepEEG"
+    root = "/scratch/chntzi001/QUERO"
 
     # collect subject IDs
-    # /Users/cccohen/deepEEG/abnormal
+    # /scratch/chntzi001/QUERO/abnormal
     abnormalFolder = os.path.join(root, "abnormal")
     normalFolder = os.path.join(root, "normal")
 
-    abSubjects = list(set([
-        f.split(".")[0]
-        for f in os.listdir(abnormalFolder)
-        if os.path.isfile(os.path.join(abnormalFolder, f))
-    ]))
-    normSubjects = list(set([
-        f.split(".")[0]
-        for f in os.listdir(normalFolder)
-        if os.path.isfile(os.path.join(normalFolder, f))
-    ]))
+    abSubjects = []
+    normSubjects = []
+    subjectDict = {}
+    with open("queroLabels.txt", "r") as f:
+        for line in f:
+            subID, label = line.strip().split("\t")
+            subjectDict[subID] = int(label)
+            if int(label) == 1:
+                abSubjects.append(subID)
+            else:
+                normSubjects.append(subID)
 
     totalSubjects = abSubjects + normSubjects  # list of all subject IDs
+    # 80% of the data for training
+    numTraining = round(len(totalSubjects) * 0.8)
+    numTest = round(len(totalSubjects) * 0.2)  # 20% of the data for testing
+    # random sample of training subjects
+    trainingSubjects = random.sample(totalSubjects, k=numTraining)
+    trainingLabels = [subjectDict[sub] for sub in trainingSubjects]
+    # remaining subjects for testing
+    testSubjects = [
+        sub for sub in totalSubjects if sub not in trainingSubjects]
     # list of all respective subject ID's label (1 - abnormal and 0 - normal)
-    labels = [1] * len(abSubjects) + [0] * len(normSubjects)
 
     skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=0)  # k = 5
 
-    for foldCount, (trainCount, testCount) in enumerate(skf.split(totalSubjects, labels)):
-        trainSubs = [totalSubjects[i] for i in trainCount]
-        testSubs = [totalSubjects[i] for i in testCount]
-        trainLabels = [labels[i] for i in trainCount]
-        testLabels = [labels[i] for i in testCount]
+    for splitCount, (trainIndex, valIndex) in enumerate(skf.split(trainingSubjects, trainingLabels)):
+        print(f"SPLIT {splitCount + 1}")
+        trainSubs = [trainingSubjects[i] for i in trainIndex]
+        trainLabels = [trainingLabels[i] for i in trainIndex]
+        valSubs = [trainingSubjects[i] for i in valIndex]
+        valLabels = [trainingLabels[i] for i in valIndex]
 
         # create parameter list per fold
-        # path name will be e.g. "/scratch/chntzi001/QUERO/processed/fold_1"
-        foldDump = os.path.join(root, "processed", f"fold_{foldCount+1}")
+        # path name will be e.g. "/scratch/chntzi001/QUERO/processed/split_1"
+        foldDump = os.path.join(root, "processed", f"split_{splitCount+1}")
         os.makedirs(foldDump, exist_ok=True)
-        # path name will be e.g. "/scratch/chntzi001/QUERO/processed/fold_1/train"
+        # path name will be e.g. "/scratch/chntzi001/QUERO/processed/split_1/train"
         trainDump = os.path.join(foldDump, "train")
-        testDump = os.path.join(foldDump, "test")
+        valDump = os.path.join(foldDump, "val")
+
         os.makedirs(trainDump, exist_ok=True)
-        os.makedirs(testDump, exist_ok=True)
+        os.makedirs(valDump, exist_ok=True)
 
         params = []
         for subID in trainSubs:
@@ -162,16 +176,29 @@ if __name__ == "__main__":
             # adds an array of folder path, subject ID, train dump path, label to the list of training parameters
             params.append([folder, subID, trainDump, label])
 
-        testParams = []
-        for subID in testSubs:
+        for subID in valSubs:
             folder, label = mapSub(subID)
-            # adds an array of folder path of subject's origin, subject ID, test dump path, label to the list of test parameters
-            params.append([folder, subID, testDump, label])
+            # adds an array of folder path of subject's origin, subject ID, val dump path, label to the list of val parameters
+            params.append([folder, subID, valDump, label])
 
         # split and dump in parallel
         with Pool(processes=24) as pool:
             # Use the pool.map function to apply the square function to each element in the numbers list
             result = pool.map(split_and_dump, params)
+
+    # process test subjects
+    # "/scratch/chntzi001/QUERO/processed/test"
+    testDump = os.path.join(root, "processed", "test")
+    os.makedirs(testDump, exist_ok=True)
+    testParams = []
+    for subID in testSubjects:
+        folder, label = mapSub(subID)
+        # adds an array of folder path, subject ID, train dump path, label to the list of training parameters
+        testParams.append([folder, subID, testDump, label])
+
+    with Pool(processes=24) as pool:
+        # Use the pool.map function to apply the square function to each element in the numbers list
+        result = pool.map(split_and_dump, testParams)
 
 
 # # Use a loop:

@@ -10,6 +10,7 @@ sintx --ntasks=1 --account=compsci --partition=swan
 module load python/miniconda3-py3.9
 source activate /home/chntzi001/.conda/envs/EEGPT_env
 
+pip install pyhealth
 
 /scratch/chntzi001/TUAB/processed
 
@@ -27,12 +28,13 @@ pip list | grep pyhealth
 
 /home/chntzi001/deepEEG/EEGPT/downstream_tueg/engine_for_finetuning_EEGPT.py:81: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
 
-
+source /opt/exp_soft/miniconda3-py3.9/etc/profile.d/conda.sh
+conda activate EEGPT_env
 
 accessing tensorboard log:
-sintx --ntasks=1 --account=compsci --partition=swan
-module load python/miniconda3-py3.9
-source activate /home/chntzi001/.conda/envs/EEGPT_env
-cd ~/deepEEG/log/finetune_tuab_eegpt
-tensorboard --logdir=. --port=6006 --host=0.0.0.0
-ssh -L 6006:srvrocgpu012:6006 chntzi001@srvrochpc221 (from local machine)
+
+conda activate EEGPT_env
+tensorboard --logdir=~/deepEEG/log/finetune_quero_eegpt --port=6006
+
+in local terminal: ssh -L 6006:localhost:6006 chntzi001@srvrochpc001
+

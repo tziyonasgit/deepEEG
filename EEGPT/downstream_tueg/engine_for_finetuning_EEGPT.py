@@ -176,6 +176,7 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
     pred = []
     true = []
     for step, batch in enumerate(metric_logger.log_every(data_loader, 10, header)):
+        print(f"Step {step}: batch[0].shape = {batch[0].shape}")
         EEG = batch[0]
         target = batch[-1]
         EEG = EEG.float().to(device, non_blocking=True) / 100
@@ -185,7 +186,7 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
             target = target.float().unsqueeze(-1)
 
         # compute output
-        with torch.cuda.amp.autocast():
+        with torch.amp.autocast(device_type='cuda'):
             output = model(EEG)
             loss = criterion(output, target)
 
