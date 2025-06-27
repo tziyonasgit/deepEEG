@@ -14,6 +14,7 @@ import torch
 from timm.utils import ModelEma
 import utils
 from einops import rearrange
+import csv
 
 
 def train_class_batch(model, samples, target, criterion, ch_names):
@@ -175,10 +176,12 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
     model.eval()
     pred = []
     true = []
+
     for step, batch in enumerate(metric_logger.log_every(data_loader, 10, header)):
-        print(f"Step {step}: batch[0].shape = {batch[0].shape}")
-        EEG = batch[0]
-        target = batch[-1]
+        # print(f"type(batch): {type(batch)}")
+        # print(f"batch: {batch}")
+        EEG = batch[0]  # batch[0] is the EEG data - X
+        target = batch[-1]  # batch[-1] is the target/label - y
         EEG = EEG.float().to(device, non_blocking=True) / 100
         EEG = rearrange(EEG, 'B N (A T) -> B N A T', T=200)
         target = target.to(device, non_blocking=True)
@@ -205,7 +208,7 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
         metric_logger.update(loss=loss.item())
         for key, value in results.items():
             metric_logger.meters[key].update(value, n=batch_size)
-        # metric_logger.meters['acc5'].update(acc5.item(), n=batch_size)
+
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print('* loss {losses.global_avg:.3f}'
@@ -213,6 +216,13 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
 
     pred = torch.cat(pred, dim=0).numpy()
     true = torch.cat(true, dim=0).numpy()
+
+    with open("predictions.csv", "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["Prediction", "Target"])
+        for p, t in zip(pred, true):
+            # flatten in case output is multidimensional
+            writer.writerow([float(p), float(t)])
 
     ret = utils.get_metrics(pred, true, metrics, is_binary, 0.5)
     ret['loss'] = metric_logger.loss.global_avg

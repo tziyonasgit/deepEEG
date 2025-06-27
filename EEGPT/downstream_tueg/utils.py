@@ -770,7 +770,7 @@ class QUEROLoader(torch.utils.data.Dataset):
             X = resample(X, 10 * self.sampling_rate, axis=-1)
         Y = sample["y"]
         X = torch.FloatTensor(X)
-        return X, Y
+        return X, Y  # X is EEG and Y is label
 
 
 class TUEVLoader(torch.utils.data.Dataset):
@@ -849,15 +849,15 @@ def prepare_QUERO_dataset(root, foldNum):
     train_files = os.listdir(os.path.join(fold_path, "train"))
     np.random.shuffle(train_files)
     # technically validation set
-    test_files = os.listdir(os.path.join(fold_path, "val"))
+    val_files = os.listdir(os.path.join(fold_path, "val"))
 
-    print(len(train_files), len(test_files))
+    print(len(train_files), len(val_files))
 
     # prepare training and test data loader
     train_dataset = QUEROLoader(os.path.join(fold_path, "train"), train_files)
-    test_dataset = QUEROLoader(os.path.join(fold_path, "val"), test_files)
-    print(len(train_files), len(test_files))
-    return train_dataset, test_dataset
+    val_dataset = QUEROLoader(os.path.join(fold_path, "val"), val_files)
+    print(len(train_files), len(val_files))
+    return train_dataset, val_dataset
 
 
 def prepare_test_dataset(root):
