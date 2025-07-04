@@ -5,7 +5,7 @@ conda activate EEGPT_env
 
 
 sintx --ntasks=1 --account=compsci --partition=swan
-
+conda install -c conda-forge mne=1.6.1
 
 module load python/miniconda3-py3.9
 source activate /home/chntzi001/.conda/envs/EEGPT_env

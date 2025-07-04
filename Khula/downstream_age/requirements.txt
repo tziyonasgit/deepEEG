@@ -1,0 +1,14 @@
+timm==0.4.12
+Pillow
+blobfile
+mypy
+pytest
+requests
+einops
+scipy
+h5py
+mne==1.4.2
+numpy==1.26.4
+scikit-learn==1.4.2
+tensorboard
+tensorboardX
