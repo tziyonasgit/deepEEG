@@ -19,7 +19,7 @@ from optim_factory import create_optimizer, get_parameter_groups, LayerDecayValu
 from engine_for_finetuning_EEGPT import train_one_epoch, evaluate
 from utils import NativeScalerWithGradNormCount as NativeScaler
 import utils
-from Modules.models.EEGPT_mcae_finetune_change_tuev import EEGPTClassifier
+from EEGPT.downstream.Modules.models.EEGPT_mcae_finetune_change_khula import EEGPTClassifier
 
 
 def get_args():
@@ -263,6 +263,17 @@ def get_dataset(args):
         metrics = ["accuracy", "balanced_accuracy",
                    "cohen_kappa", "f1_weighted"]
 
+    elif args.dataset == 'KHULA':
+        train_dataset, test_dataset, val_dataset = utils.prepare_KHULA_dataset(
+            "/scratch/chntzi001/khula/processed/")
+        ch_names = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF',
+                    'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
+
+        ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
+        args.nb_classes = 4
+        metrics = ["accuracy", "balanced_accuracy",
+                   "cohen_kappa", "f1_weighted"]
+
     elif args.dataset == 'TUSZ':
         train_dataset, test_dataset, val_dataset = utils.prepare_TUSZ_dataset(
             None)
@@ -279,7 +290,7 @@ def get_dataset(args):
 
 
 def main(args, ds_init):
-    utils.init_distributed_mode(args)
+    # utils.init_distributed_mode(args) - not running distributed mode
 
     if ds_init is not None:
         utils.create_ds_config(args)
@@ -309,29 +320,30 @@ def main(args, ds_init):
     if True:  # args.distributed:
         num_tasks = utils.get_world_size()
         global_rank = utils.get_rank()
-        sampler_train = torch.utils.data.DistributedSampler(
-            dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
-        )
-        print("Sampler_train = %s" % str(sampler_train))
-        if args.dist_eval:
+        if not args.eval:
+            sampler_train = torch.utils.data.DistributedSampler(
+                dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
+            )
+            print("Sampler_train = %s" % str(sampler_train))
+        if args.dist_eval and dataset_val is not None:
             if len(dataset_val) % num_tasks != 0:
                 print('Warning: Enabling distributed evaluation with an eval dataset not divisible by process number. '
                       'This will slightly alter validation results as extra duplicate entries are added to achieve '
                       'equal num of samples per-process.')
             sampler_val = torch.utils.data.DistributedSampler(
                 dataset_val, num_replicas=num_tasks, rank=global_rank, shuffle=False)
-            if type(dataset_test) == list:
-                sampler_test = [torch.utils.data.DistributedSampler(
-                    dataset, num_replicas=num_tasks, rank=global_rank, shuffle=False) for dataset in dataset_test]
-            else:
-                sampler_test = torch.utils.data.DistributedSampler(
-                    dataset_test, num_replicas=num_tasks, rank=global_rank, shuffle=False)
+            if dataset_test is not None:
+                if type(dataset_test) == list:
+                    sampler_test = [torch.utils.data.DistributedSampler(
+                        dataset, num_replicas=num_tasks, rank=global_rank, shuffle=False) for dataset in dataset_test]
+                else:
+                    sampler_test = torch.utils.data.DistributedSampler(
+                        dataset_test, num_replicas=num_tasks, rank=global_rank, shuffle=False)
         else:
+            print("got here.....")
+            print("setting up sampler val and test")
             sampler_val = torch.utils.data.SequentialSampler(dataset_val)
             sampler_test = torch.utils.data.SequentialSampler(dataset_test)
-    else:
-        sampler_train = torch.utils.data.RandomSampler(dataset_train)
-        sampler_val = torch.utils.data.SequentialSampler(dataset_val)
 
     if global_rank == 0 and args.log_dir is not None:
         os.makedirs(args.log_dir, exist_ok=True)
@@ -387,7 +399,8 @@ def main(args, ds_init):
             checkpoint = torch.hub.load_state_dict_from_url(
                 args.finetune, map_location='cpu', check_hash=True)
         else:
-            checkpoint = torch.load(args.finetune, map_location='cpu')
+            checkpoint = torch.load(
+                args.finetune, map_location='cpu', weights_only=False)
 
         print("Load ckpt from %s" % args.finetune)
         # checkpoint_model = None

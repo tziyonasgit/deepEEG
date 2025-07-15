@@ -8,7 +8,6 @@ einops
 scipy
 h5py
 mne==1.4.2
-numpy==1.26.4
-scikit-learn==1.4.2
+numpy==1.26.4 
+scikit-learn==1.4.0
 tensorboard
-tensorboardX

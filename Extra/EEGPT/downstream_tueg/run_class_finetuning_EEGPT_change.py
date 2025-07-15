@@ -19,7 +19,7 @@ from optim_factory import create_optimizer, get_parameter_groups, LayerDecayValu
 from engine_for_finetuning_EEGPT import train_one_epoch, evaluate
 from utils import NativeScalerWithGradNormCount as NativeScaler
 import utils
-from Modules.models.EEGPT_mcae_finetune_change_tuev import EEGPTClassifier
+from Modules.models.EEGPT_mcae_finetune_change import EEGPTClassifier
 
 
 def get_args():
@@ -175,6 +175,11 @@ def get_args():
                         action='store_true', default=False)
     parser.add_argument('--dataset', default='TUAB', type=str,
                         help='dataset: TUAB | TUEV')
+    parser.set_defaults(distributed=False)
+    parser.add_argument('--fold', default=1, type=int,
+                        help='fold number for cross-validation')
+    parser.add_argument('--kfoldcrossval', action='store_true',
+                        help='Enable k-fold cross-validation')
 
     known_args, _ = parser.parse_known_args()
 
@@ -218,14 +223,21 @@ def get_models(args):
         'P7', 'P3', 'PZ', 'P4', 'P8',
         'O1', 'O2']
 
-    ch_names = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF',
-                'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
-
+    if args.dataset == "QUERO":
+        ch_names = [
+            'EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF',
+            'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF',
+            'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', 'EEG F8-REF',
+            'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF',
+            'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF']
+    else:
+        ch_names = ['EEG FP1', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF',
+                    'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
     ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
     model = EEGPTClassifier(
         num_classes=args.nb_classes,
         in_channels=len(ch_names),
-        img_size=[len(use_channels_names), 1000],
+        img_size=[len(use_channels_names), 2000],
         use_channels_names=use_channels_names,
         use_chan_conv=True,
         use_mean_pooling=args.use_mean_pooling,)
@@ -242,14 +254,37 @@ def get_models(args):
     return model
 
 
-def get_dataset(args):
-    if args.dataset == 'TUAB':
+def get_dataset(args):  # ensure directory is changed to correct one when on hpc
+    if args.eval:
+        test_dataset = utils.prepare_test_dataset(
+            "/scratch/chntzi001/QUERO/processed/")
+        ch_names = [
+            'EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF',
+            'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF',
+            'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', 'EEG F8-REF',
+            'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF',
+            'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF'
+        ]
+        ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
+        args.nb_classes = 1
+        metrics = ["pr_auc", "roc_auc", "accuracy", "balanced_accuracy"]
+        val_dataset = None
+        train_dataset = None
+    elif args.dataset == 'TUAB':
         train_dataset, test_dataset, val_dataset = utils.prepare_TUAB_dataset(
-            "../datasets/downstream/tuh_eeg_abnormal/v3.0.1/edf/processed/")
+            "/content/TUAB/v3.0.1/edf/processed/")
         ch_names = ['EEG FP1', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF',
                     'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
         ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
         args.nb_classes = 1
+        metrics = ["pr_auc", "roc_auc", "accuracy", "balanced_accuracy"]
+    elif args.dataset == 'KHULA':
+        train_dataset, test_dataset, val_dataset = utils.prepare_KHULA_dataset(
+            "/scratch/chntzi001/khula/processed/")
+        ch_names = ['EEG FP1', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF',
+                    'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
+        ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
+        args.nb_classes = 4
         metrics = ["pr_auc", "roc_auc", "accuracy", "balanced_accuracy"]
 
     elif args.dataset == 'TUEV':
@@ -266,20 +301,31 @@ def get_dataset(args):
     elif args.dataset == 'TUSZ':
         train_dataset, test_dataset, val_dataset = utils.prepare_TUSZ_dataset(
             None)
-
-        # ch_names = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', \
-        #             'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
-        # ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
         ch_names = ['FP1', 'F3', 'C3', 'P3', 'F7', 'T3', 'T5', 'O1', 'FZ',
                     'CZ', 'PZ', 'FP2', 'F4', 'C4', 'P4', 'F8', 'T4', 'T6', 'O2']
         args.nb_classes = 8
         metrics = ["accuracy", "balanced_accuracy",
                    "cohen_kappa", "f1_weighted"]
+
+    elif args.dataset == 'QUERO':
+        train_dataset, val_dataset = utils.prepare_QUERO_dataset(
+            "/scratch/chntzi001/QUERO/processed/", args.fold)
+        ch_names = [
+            'EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF',
+            'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF',
+            'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', 'EEG F8-REF',
+            'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF',
+            'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF'
+        ]
+        ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
+        args.nb_classes = 1
+        metrics = ["pr_auc", "roc_auc", "accuracy", "balanced_accuracy"]
+        test_dataset = None
     return train_dataset, test_dataset, val_dataset, ch_names, metrics
 
 
 def main(args, ds_init):
-    utils.init_distributed_mode(args)
+    # utils.init_distributed_mode(args) - not running distributed mode
 
     if ds_init is not None:
         utils.create_ds_config(args)
@@ -299,6 +345,7 @@ def main(args, ds_init):
     # dataset_train, dataset_test, dataset_val: follows the standard format of torch.utils.data.Dataset.
     # ch_names: list of strings, channel names of the dataset. It should be in capital letters.
     # metrics: list of strings, the metrics you want to use. We utilize PyHealth to implement it.
+
     dataset_train, dataset_test, dataset_val, ch_names, metrics = get_dataset(
         args)
 
@@ -306,32 +353,40 @@ def main(args, ds_init):
         dataset_val = None
         dataset_test = None
 
-    if True:  # args.distributed:
+    if True:
         num_tasks = utils.get_world_size()
         global_rank = utils.get_rank()
-        sampler_train = torch.utils.data.DistributedSampler(
-            dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
-        )
-        print("Sampler_train = %s" % str(sampler_train))
-        if args.dist_eval:
+        if not args.eval:
+            sampler_train = torch.utils.data.DistributedSampler(
+                dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
+            )
+            print("Sampler_train = %s" % str(sampler_train))
+        if args.dist_eval and dataset_val is not None:
+            print("Enabling distributed evaluation and configuring validation sampler")
             if len(dataset_val) % num_tasks != 0:
                 print('Warning: Enabling distributed evaluation with an eval dataset not divisible by process number. '
                       'This will slightly alter validation results as extra duplicate entries are added to achieve '
                       'equal num of samples per-process.')
             sampler_val = torch.utils.data.DistributedSampler(
                 dataset_val, num_replicas=num_tasks, rank=global_rank, shuffle=False)
-            if type(dataset_test) == list:
-                sampler_test = [torch.utils.data.DistributedSampler(
-                    dataset, num_replicas=num_tasks, rank=global_rank, shuffle=False) for dataset in dataset_test]
-            else:
-                sampler_test = torch.utils.data.DistributedSampler(
-                    dataset_test, num_replicas=num_tasks, rank=global_rank, shuffle=False)
+            if dataset_test is not None:
+                if type(dataset_test) == list:
+                    sampler_test = [torch.utils.data.DistributedSampler(
+                        dataset, num_replicas=num_tasks, rank=global_rank, shuffle=False) for dataset in dataset_test]
+                else:
+                    sampler_test = torch.utils.data.DistributedSampler(
+                        dataset_test, num_replicas=num_tasks, rank=global_rank, shuffle=False)
         else:
+            print("got here.....")
+            # if type(dataset_test) == list:
+            #     sampler_test = [torch.utils.data.DistributedSampler(
+            #         dataset, num_replicas=num_tasks, rank=global_rank, shuffle=False) for dataset in dataset_test]
+            # else:
+            #     sampler_test = torch.utils.data.DistributedSampler(
+            #         dataset_test, num_replicas=num_tasks, rank=global_rank, shuffle=False)
+            print("setting up sampler val and test")
             sampler_val = torch.utils.data.SequentialSampler(dataset_val)
             sampler_test = torch.utils.data.SequentialSampler(dataset_test)
-    else:
-        sampler_train = torch.utils.data.RandomSampler(dataset_train)
-        sampler_val = torch.utils.data.SequentialSampler(dataset_val)
 
     if global_rank == 0 and args.log_dir is not None:
         os.makedirs(args.log_dir, exist_ok=True)
@@ -339,13 +394,14 @@ def main(args, ds_init):
     else:
         log_writer = None
 
-    data_loader_train = torch.utils.data.DataLoader(
-        dataset_train, sampler=sampler_train,
-        batch_size=args.batch_size,
-        num_workers=args.num_workers,
-        pin_memory=args.pin_mem,
-        drop_last=True,
-    )
+    if not args.eval:
+        data_loader_train = torch.utils.data.DataLoader(
+            dataset_train, sampler=sampler_train,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
+            pin_memory=args.pin_mem,
+            drop_last=True,
+        )
 
     if dataset_val is not None:
         data_loader_val = torch.utils.data.DataLoader(
@@ -355,6 +411,26 @@ def main(args, ds_init):
             pin_memory=args.pin_mem,
             drop_last=False
         )
+        if dataset_test is not None:
+            if type(dataset_test) == list:
+                data_loader_test = [torch.utils.data.DataLoader(
+                    dataset, sampler=sampler,
+                    batch_size=int(1.5 * args.batch_size),
+                    num_workers=args.num_workers,
+                    pin_memory=args.pin_mem,
+                    drop_last=False
+                ) for dataset, sampler in zip(dataset_test, sampler_test)]
+            else:
+                data_loader_test = torch.utils.data.DataLoader(
+                    dataset_test, sampler=sampler_test,
+                    batch_size=int(1.5 * args.batch_size),
+                    num_workers=args.num_workers,
+                    pin_memory=args.pin_mem,
+                    drop_last=False
+                )
+        data_loader_test = None
+    elif dataset_test is not None:
+        print("configuring for test dataset")
         if type(dataset_test) == list:
             data_loader_test = [torch.utils.data.DataLoader(
                 dataset, sampler=sampler,
@@ -371,6 +447,7 @@ def main(args, ds_init):
                 pin_memory=args.pin_mem,
                 drop_last=False
             )
+        data_loader_val = None
     else:
         data_loader_val = None
         data_loader_test = None
@@ -383,15 +460,17 @@ def main(args, ds_init):
     args.patch_size = patch_size
 
     if args.finetune:
+        print("Loading checkpoint from %s" % args.finetune)
         if args.finetune.startswith('https'):
             checkpoint = torch.hub.load_state_dict_from_url(
                 args.finetune, map_location='cpu', check_hash=True)
         else:
-            checkpoint = torch.load(args.finetune, map_location='cpu')
+            checkpoint = torch.load(
+                args.finetune, map_location='cpu', weights_only=False)
 
         print("Load ckpt from %s" % args.finetune)
-
-        checkpoint_model = checkpoint['state_dict']
+        checkpoint_model = checkpoint.get(
+            'state_dict', checkpoint.get('model'))
         utils.load_state_dict(model, checkpoint_model,
                               prefix=args.model_prefix)
 
@@ -414,80 +493,88 @@ def main(args, ds_init):
     print("Model = %s" % str(model_without_ddp))
     print('number of params:', n_parameters)
 
-    total_batch_size = args.batch_size * args.update_freq * utils.get_world_size()
-    num_training_steps_per_epoch = len(dataset_train) // total_batch_size
-    print("LR = %.8f" % args.lr)
-    print("Batch size = %d" % total_batch_size)
-    print("Update frequent = %d" % args.update_freq)
-    print("Number of training examples = %d" % len(dataset_train))
-    print("Number of training training per epoch = %d" %
-          num_training_steps_per_epoch)
+    if not args.eval:
+        total_batch_size = args.batch_size * args.update_freq * utils.get_world_size()
+        num_training_steps_per_epoch = len(dataset_train) // total_batch_size
+        print("LR = %.8f" % args.lr)
+        print("Batch size = %d" % total_batch_size)
+        print("Update frequent = %d" % args.update_freq)
+        print("Number of training examples = %d" % len(dataset_train))
+        print("Number of training training per epoch = %d" %
+              num_training_steps_per_epoch)
 
-    num_layers = model_without_ddp.get_num_layers()
-    if args.layer_decay < 1.0:
-        assigner = LayerDecayValueAssigner(
-            list(args.layer_decay ** (num_layers + 1 - i) for i in range(num_layers + 2)))
-    else:
-        assigner = None
+        # returns the number of transformer layers
+        num_layers = model_without_ddp.get_num_layers()
+        if args.layer_decay < 1.0:
+            assigner = LayerDecayValueAssigner(
+                list(args.layer_decay ** (num_layers + 1 - i) for i in range(num_layers + 2)))
+        else:
+            assigner = None
 
-    if assigner is not None:
-        print("Assigned values = %s" % str(assigner.values))
+        if assigner is not None:
+            print("Assigned values = %s" % str(assigner.values))
 
-    skip_weight_decay_list = model.no_weight_decay()
-    if args.disable_weight_decay_on_rel_pos_bias:
-        for i in range(num_layers):
-            skip_weight_decay_list.add(
-                "blocks.%d.attn.relative_position_bias_table" % i)
+        skip_weight_decay_list = model.no_weight_decay()
+        if args.disable_weight_decay_on_rel_pos_bias:
+            for i in range(num_layers):
+                skip_weight_decay_list.add(
+                    "blocks.%d.attn.relative_position_bias_table" % i)
 
-    if args.enable_deepspeed:
-        loss_scaler = None
-        optimizer_params = get_parameter_groups(
-            model, args.weight_decay, skip_weight_decay_list,
-            assigner.get_layer_id if assigner is not None else None,
-            assigner.get_scale if assigner is not None else None)
-        model, optimizer, _, _ = ds_init(
-            args=args, model=model, model_parameters=optimizer_params, dist_init_required=not args.distributed,
+    if not args.eval:
+        if args.enable_deepspeed:
+            loss_scaler = None
+            optimizer_params = get_parameter_groups(
+                model, args.weight_decay, skip_weight_decay_list,
+                assigner.get_layer_id if assigner is not None else None,
+                assigner.get_scale if assigner is not None else None)
+            model, optimizer, _, _ = ds_init(
+                args=args, model=model, model_parameters=optimizer_params, dist_init_required=not args.distributed,
+            )
+
+            print("model.gradient_accumulation_steps() = %d" %
+                  model.gradient_accumulation_steps())
+            assert model.gradient_accumulation_steps() == args.update_freq
+        else:
+            if args.distributed:
+                model = torch.nn.parallel.DistributedDataParallel(
+                    model, device_ids=[args.gpu], find_unused_parameters=True)
+                model_without_ddp = model.module
+
+            optimizer = create_optimizer(
+                args, model_without_ddp, skip_list=skip_weight_decay_list,
+                get_num_layer=assigner.get_layer_id if assigner is not None else None,
+                get_layer_scale=assigner.get_scale if assigner is not None else None)
+            loss_scaler = NativeScaler()
+
+        print("Use step level LR scheduler!")
+        lr_schedule_values = utils.cosine_scheduler(
+            args.lr, args.min_lr, args.epochs, num_training_steps_per_epoch,
+            warmup_epochs=args.warmup_epochs, warmup_steps=args.warmup_steps,
         )
+        if args.weight_decay_end is None:
+            args.weight_decay_end = args.weight_decay
+        wd_schedule_values = utils.cosine_scheduler(
+            args.weight_decay, args.weight_decay_end, args.epochs, num_training_steps_per_epoch)
+        print("Max WD = %.7f, Min WD = %.7f" %
+              (max(wd_schedule_values), min(wd_schedule_values)))
 
-        print("model.gradient_accumulation_steps() = %d" %
-              model.gradient_accumulation_steps())
-        assert model.gradient_accumulation_steps() == args.update_freq
-    else:
-        if args.distributed:
-            model = torch.nn.parallel.DistributedDataParallel(
-                model, device_ids=[args.gpu], find_unused_parameters=True)
-            model_without_ddp = model.module
-
-        optimizer = create_optimizer(
-            args, model_without_ddp, skip_list=skip_weight_decay_list,
-            get_num_layer=assigner.get_layer_id if assigner is not None else None,
-            get_layer_scale=assigner.get_scale if assigner is not None else None)
-        loss_scaler = NativeScaler()
-
-    print("Use step level LR scheduler!")
-    lr_schedule_values = utils.cosine_scheduler(
-        args.lr, args.min_lr, args.epochs, num_training_steps_per_epoch,
-        warmup_epochs=args.warmup_epochs, warmup_steps=args.warmup_steps,
-    )
-    if args.weight_decay_end is None:
-        args.weight_decay_end = args.weight_decay
-    wd_schedule_values = utils.cosine_scheduler(
-        args.weight_decay, args.weight_decay_end, args.epochs, num_training_steps_per_epoch)
-    print("Max WD = %.7f, Min WD = %.7f" %
-          (max(wd_schedule_values), min(wd_schedule_values)))
-
+    # selects loss function
     if args.nb_classes == 1:
         criterion = torch.nn.BCEWithLogitsLoss()
     elif args.smoothing > 0.:
         criterion = LabelSmoothingCrossEntropy(smoothing=args.smoothing)
     else:
         criterion = torch.nn.CrossEntropyLoss()
-
     print("criterion = %s" % str(criterion))
 
-    utils.auto_load_model(
-        args=args, model=model, model_without_ddp=model_without_ddp,
-        optimizer=optimizer, loss_scaler=loss_scaler, model_ema=model_ema)
+    if not args.eval:
+        utils.auto_load_model(
+            args=args, model=model, model_without_ddp=model_without_ddp,
+            optimizer=optimizer, loss_scaler=loss_scaler, model_ema=model_ema)
+
+    if data_loader_test is not None:
+        if not isinstance(data_loader_test, list):
+            data_loader_test = [data_loader_test]
 
     if args.eval:
         balanced_accuracy = []
@@ -499,6 +586,7 @@ def main(args, ds_init):
             balanced_accuracy.append(test_stats['balanced_accuracy'])
         print(
             f"======Accuracy: {np.mean(accuracy)} {np.std(accuracy)}, balanced accuracy: {np.mean(balanced_accuracy)} {np.std(balanced_accuracy)}")
+        print("Testing done!!!!!!!")
         exit(0)
 
     print(f"Start training for {args.epochs} epochs")
@@ -525,7 +613,49 @@ def main(args, ds_init):
                 args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
                 loss_scaler=loss_scaler, epoch=epoch, model_ema=model_ema, save_ckpt_freq=args.save_ckpt_freq)
 
-        if data_loader_val is not None:
+        if args.kfoldcrossval:  # no test set, only val sets in each fold to tune hyperparameters
+            print("Running k-fold cross-validation, no test set")
+            val_stats = evaluate(data_loader_val, model, device, header='Val:',
+                                 ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1)
+            print(
+                f"Accuracy of the network on the {len(dataset_val)} test EEG: {val_stats['accuracy']:.2f}%")
+
+            if max_accuracy < val_stats["accuracy"]:
+                max_accuracy = val_stats["accuracy"]
+                if args.output_dir and args.save_ckpt:
+                    utils.save_model(
+                        args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
+                        loss_scaler=loss_scaler, epoch="best", model_ema=model_ema)
+
+            print(f'Max accuracy val: {max_accuracy:.2f}%')
+            if log_writer is not None:
+                for key, value in val_stats.items():
+                    if key == 'accuracy':
+                        log_writer.update(
+                            accuracy=value, head="val", step=epoch)
+                    elif key == 'balanced_accuracy':
+                        log_writer.update(
+                            balanced_accuracy=value, head="val", step=epoch)
+                    elif key == 'f1_weighted':
+                        log_writer.update(f1_weighted=value,
+                                          head="val", step=epoch)
+                    elif key == 'pr_auc':
+                        log_writer.update(
+                            pr_auc=value, head="val", step=epoch)
+                    elif key == 'roc_auc':
+                        log_writer.update(
+                            roc_auc=value, head="val", step=epoch)
+                    elif key == 'cohen_kappa':
+                        log_writer.update(cohen_kappa=value,
+                                          head="val", step=epoch)
+                    elif key == 'loss':
+                        log_writer.update(loss=value, head="val", step=epoch)
+
+            log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
+                         **{f'val_{k}': v for k, v in val_stats.items()},
+                         'epoch': epoch,
+                         'n_parameters': n_parameters}
+        elif data_loader_val is not None:
             val_stats = evaluate(data_loader_val, model, device, header='Val:',
                                  ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1)
             print(
@@ -607,6 +737,23 @@ def main(args, ds_init):
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     print('Training time {}'.format(total_time_str))
+
+    # save final fold results
+    if args.output_dir and utils.is_main_process():
+        if args.kfoldcrossval:
+            final_results = {
+                "fold": args.fold if hasattr(args, "fold") else "unknown",
+                "max_val_accuracy": max_accuracy,
+                "total_training_time": total_time_str,
+            }
+        else:
+            final_results = {
+                "max_val_accuracy": max_accuracy,
+                "max_test_accuracy": max_accuracy_test,
+                "total_training_time": total_time_str,
+            }
+        with open(os.path.join(args.output_dir, "allFoldResults.json"), "w") as f:
+            json.dump(final_results, f, indent=2)
 
 
 if __name__ == '__main__':

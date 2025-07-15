@@ -2,7 +2,7 @@ from scipy.stats import pearsonr
 from sklearn.metrics import mean_squared_error
 from sklearn.metrics import r2_score
 import pandas as pd
-from PyHealth.localpyhealth.metrics import binary_metrics_fn, multiclass_metrics_fn
+from pyhealth.metrics import binary_metrics_fn, multiclass_metrics_fn
 from scipy.signal import resample
 import pickle
 from torch.utils.tensorboard import SummaryWriter
@@ -794,6 +794,27 @@ class TUEVLoader(torch.utils.data.Dataset):
         return X, Y
 
 
+class KHULALoader(torch.utils.data.Dataset):
+    def __init__(self, root, files, sampling_rate=200):
+        self.root = root
+        self.files = files
+        self.default_rate = 200
+        self.sampling_rate = sampling_rate
+
+    def __len__(self):
+        return len(self.files)
+
+    def __getitem__(self, index):
+        sample = pickle.load(
+            open(os.path.join(self.root, self.files[index]), "rb"))
+        X = sample["signal"]
+        if self.sampling_rate != self.default_rate:
+            X = resample(X, 5 * self.sampling_rate, axis=-1)
+        Y = int(sample["label"][0] - 1)
+        X = torch.FloatTensor(X)
+        return X, Y
+
+
 def prepare_TUEV_dataset(root):
     # set random seed
     seed = 4523
@@ -836,6 +857,26 @@ def prepare_TUAB_dataset(root):
     train_dataset = TUABLoader(os.path.join(root, "train"), train_files)
     test_dataset = TUABLoader(os.path.join(root, "test"), test_files)
     val_dataset = TUABLoader(os.path.join(root, "val"), val_files)
+    print(len(train_files), len(val_files), len(test_files))
+    return train_dataset, test_dataset, val_dataset
+
+
+def prepare_KHULA_dataset(root):
+    # set random seed
+    seed = 12345
+    np.random.seed(seed)
+
+    train_files = os.listdir(os.path.join(root, "train"))
+    np.random.shuffle(train_files)
+    val_files = os.listdir(os.path.join(root, "val"))
+    test_files = os.listdir(os.path.join(root, "test"))
+
+    print(len(train_files), len(val_files), len(test_files))
+
+    # prepare training and test data loader
+    train_dataset = KHULALoader(os.path.join(root, "train"), train_files)
+    test_dataset = KHULALoader(os.path.join(root, "test"), test_files)
+    val_dataset = KHULALoader(os.path.join(root, "val"), val_files)
     print(len(train_files), len(val_files), len(test_files))
     return train_dataset, test_dataset, val_dataset
 

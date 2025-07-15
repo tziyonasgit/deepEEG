@@ -69,7 +69,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
         samples = samples.float().to(device, non_blocking=True) / 100
         samples = rearrange(samples, 'B N (A T) -> B N A T', T=200)
-
+        print(f"!!!!!!!!target is {targets}")
         targets = targets.to(device, non_blocking=True)
         if is_binary:
             targets = targets.float().unsqueeze(-1)
@@ -170,11 +170,16 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
         criterion = torch.nn.CrossEntropyLoss()
 
     metric_logger = utils.MetricLogger(delimiter="  ")
+    # header = 'Test:'
+
+    # switch to evaluation mode
     model.eval()
     pred = []
     true = []
 
     for step, batch in enumerate(metric_logger.log_every(data_loader, 10, header)):
+        # print(f"type(batch): {type(batch)}")
+        # print(f"batch: {batch}")
         EEG = batch[0]  # batch[0] is the EEG data - X
         target = batch[-1]  # batch[-1] is the target/label - y
         EEG = EEG.float().to(device, non_blocking=True) / 100
