@@ -71,6 +71,7 @@ def split_and_dump(params):
     file = os.path.basename(full_file_path)
     try:
         data = mne.io.read_epochs_eeglab(full_file_path)
+        is_raw = False
     except ValueError as e:
         # Load as continuous data
         print(
@@ -103,7 +104,7 @@ def split_and_dump(params):
 
     data.rename_channels(filtered_mapping)
     data.pick(list(filtered_mapping.values()))
-    is_raw = False
+
     try:
         if drop_channels is not None:
             useless_chs = []
@@ -119,35 +120,51 @@ def split_and_dump(params):
             raise Exception(
                 f"channel order is wrong!\Got: {data.ch_names}\nexpected: {filtered_mapping}")
 
-        # raw.filter(l_freq=0.1, h_freq=75.0)
+        # current sampling frequency is 1000Hz
+
+        # _______________________________________
         # raw.notch_filter(50.0)
-        # raw.resample(200, n_jobs=5)  # downsizes from 1000Hz to 200Hzs
+        # _______________________________________
+        data.filter(l_freq=0.1, h_freq=75.0)
+        data.resample(200, n_jobs=5)  # downsizes from 1000Hz to 200Hzs
 
         # ch_name = data.ch_names
+        print("Channel names:", data.ch_names)
 
         if is_raw:
-            # shape = (n_channels, n_times)
+            # raw -> shape = (n_channels, n_times)
             raw_data = data.get_data(units='uV')
             channeled_data = raw_data.copy()
         else:
-            # shape: (n_epochs, n_channels, n_times)
+            # epochs -> shape: (n_epochs, n_channels, n_times)
             epochs_data = data.get_data()
             channeled_data = np.concatenate(epochs_data, axis=-1)
-        if channeled_data.ndim != 2 or channeled_data.shape[1] < 4000:
+            # final shape: (n_channels, n_times)
+        if channeled_data.ndim != 2 or channeled_data.shape[1] < 2000:
             raise ValueError(
                 f"Invalid data shape: {channeled_data.shape} for file {file}")
         print(f"Processed {file} with shape: {channeled_data.shape}")
 
-        for i in range(channeled_data.shape[1] // 4000):
+        # if we did not resample then we have 2000/1000Hz = 2 second samples
+        # now we will have 2000/200Hz = 10 seconds samples
+
+        # channeled_data.shape[1] -> tells us number of time points
+        # we should have 2000 time points in each recording
+        for i in range(channeled_data.shape[1] // 2000):
             dump_path = os.path.join(
                 dump_folder, file.split(".")[0] + "_" + str(i) + ".pkl"
             )
             # print(f"Saving pickle to {dump_path}")
             pickle.dump(
                 {"X": channeled_data[:, i *
-                                     4000: (i + 1) * 4000], "y": label},
+                                     2000: (i + 1) * 2000], "y": label},
                 open(dump_path, "wb"),
             )
+            duration_sec = 2000 / data.info['sfreq']
+            file_size = os.path.getsize(dump_path)
+
+            print(
+                f"[INFO] Saved: {dump_path} | Duration: {duration_sec:.2f} sec | Size: {file_size / 1024:.1f} KB")
 
     except Exception as e:
         print(f"[ERROR] Processing failed for file: {file}")
@@ -164,9 +181,6 @@ def splitSrcDest(line):
 
 
 if __name__ == "__main__":
-    """
-    TUAB dataset is downloaded from https://isip.piconepress.com/projects/tuh_eeg/html/downloads.shtml
-    """
     multiprocessing.set_start_method("spawn", force=True)
 
     egiStandardDict = getChannelMapping()

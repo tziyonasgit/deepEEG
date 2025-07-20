@@ -60,7 +60,8 @@ def get_parameter_groups(model, weight_decay=1e-5, skip_list=(), get_num_layer=N
                     flag = True
             if flag:
                 continue
-        if param.ndim <= 1 or name.endswith(".bias") or name in skip_list: # param.ndim <= 1 len(param.shape) == 1
+        # param.ndim <= 1 len(param.shape) == 1
+        if param.ndim <= 1 or name.endswith(".bias") or name in skip_list:
             group_name = "no_decay"
             this_weight_decay = 0.
         else:
@@ -91,7 +92,7 @@ def get_parameter_groups(model, weight_decay=1e-5, skip_list=(), get_num_layer=N
 
         parameter_group_vars[group_name]["params"].append(param)
         parameter_group_names[group_name]["params"].append(name)
-    print("Param groups = %s" % json.dumps(parameter_group_names, indent=2))
+    # print("Param groups = %s" % json.dumps(parameter_group_names, indent=2))
     return list(parameter_group_vars.values())
 
 
@@ -105,29 +106,33 @@ def create_optimizer(args, model, get_num_layer=None, get_layer_scale=None, filt
         elif hasattr(model, 'no_weight_decay'):
             skip = model.no_weight_decay()
         print(f"Skip weight decay name marked in model: {skip}")
-        parameters = get_parameter_groups(model, weight_decay, skip, get_num_layer, get_layer_scale, **kwargs)
+        parameters = get_parameter_groups(
+            model, weight_decay, skip, get_num_layer, get_layer_scale, **kwargs)
         weight_decay = 0.
     else:
         parameters = model.parameters()
 
     if 'fused' in opt_lower:
-        assert has_apex and torch.cuda.is_available(), 'APEX and CUDA required for fused optimizers'
+        assert has_apex and torch.cuda.is_available(
+        ), 'APEX and CUDA required for fused optimizers'
 
     opt_args = dict(lr=args.lr, weight_decay=weight_decay)
     if hasattr(args, 'opt_eps') and args.opt_eps is not None:
         opt_args['eps'] = args.opt_eps
     if hasattr(args, 'opt_betas') and args.opt_betas is not None:
         opt_args['betas'] = args.opt_betas
-    
+
     print('Optimizer config:', opt_args)
     opt_split = opt_lower.split('_')
     opt_lower = opt_split[-1]
     if opt_lower == 'sgd' or opt_lower == 'nesterov':
         opt_args.pop('eps', None)
-        optimizer = optim.SGD(parameters, momentum=args.momentum, nesterov=True, **opt_args)
+        optimizer = optim.SGD(
+            parameters, momentum=args.momentum, nesterov=True, **opt_args)
     elif opt_lower == 'momentum':
         opt_args.pop('eps', None)
-        optimizer = optim.SGD(parameters, momentum=args.momentum, nesterov=False, **opt_args)
+        optimizer = optim.SGD(
+            parameters, momentum=args.momentum, nesterov=False, **opt_args)
     elif opt_lower == 'adam':
         optimizer = optim.Adam(parameters, **opt_args)
     elif opt_lower == 'adamw':
@@ -139,7 +144,8 @@ def create_optimizer(args, model, get_num_layer=None, get_layer_scale=None, filt
     elif opt_lower == 'adamp':
         optimizer = AdamP(parameters, wd_ratio=0.01, nesterov=True, **opt_args)
     elif opt_lower == 'sgdp':
-        optimizer = SGDP(parameters, momentum=args.momentum, nesterov=True, **opt_args)
+        optimizer = SGDP(parameters, momentum=args.momentum,
+                         nesterov=True, **opt_args)
     elif opt_lower == 'adadelta':
         optimizer = optim.Adadelta(parameters, **opt_args)
     elif opt_lower == 'adafactor':
@@ -149,17 +155,21 @@ def create_optimizer(args, model, get_num_layer=None, get_layer_scale=None, filt
     elif opt_lower == 'adahessian':
         optimizer = Adahessian(parameters, **opt_args)
     elif opt_lower == 'rmsprop':
-        optimizer = optim.RMSprop(parameters, alpha=0.9, momentum=args.momentum, **opt_args)
+        optimizer = optim.RMSprop(
+            parameters, alpha=0.9, momentum=args.momentum, **opt_args)
     elif opt_lower == 'rmsproptf':
-        optimizer = RMSpropTF(parameters, alpha=0.9, momentum=args.momentum, **opt_args)
+        optimizer = RMSpropTF(parameters, alpha=0.9,
+                              momentum=args.momentum, **opt_args)
     elif opt_lower == 'nvnovograd':
         optimizer = NvNovoGrad(parameters, **opt_args)
     elif opt_lower == 'fusedsgd':
         opt_args.pop('eps', None)
-        optimizer = FusedSGD(parameters, momentum=args.momentum, nesterov=True, **opt_args)
+        optimizer = FusedSGD(
+            parameters, momentum=args.momentum, nesterov=True, **opt_args)
     elif opt_lower == 'fusedmomentum':
         opt_args.pop('eps', None)
-        optimizer = FusedSGD(parameters, momentum=args.momentum, nesterov=False, **opt_args)
+        optimizer = FusedSGD(
+            parameters, momentum=args.momentum, nesterov=False, **opt_args)
     elif opt_lower == 'fusedadam':
         optimizer = FusedAdam(parameters, adam_w_mode=False, **opt_args)
     elif opt_lower == 'fusedadamw':

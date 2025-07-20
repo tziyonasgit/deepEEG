@@ -473,11 +473,13 @@ def load_state_dict(model, state_dict, prefix='', ignore_missing="relative_posit
     missing_keys = warn_missing_keys
 
     if len(missing_keys) > 0:
-        print("Weights of {} not initialized from pretrained model: {}".format(
-            model.__class__.__name__, missing_keys))
+        # print("Weights of {} not initialized from pretrained model: {}".format(
+        #     model.__class__.__name__, missing_keys))
+        print("some weights are not initialized from pretrained model")
     if len(unexpected_keys) > 0:
-        print("Weights from pretrained model not used in {}: {}".format(
-            model.__class__.__name__, unexpected_keys))
+        # print("Weights from pretrained model not used in {}: {}".format(
+        #     model.__class__.__name__, unexpected_keys))
+        print("some weights from pretrained model not used in model")
     if len(ignore_missing_keys) > 0:
         print("Ignored weights of {} not initialized from pretrained model: {}".format(
             model.__class__.__name__, ignore_missing_keys))
@@ -502,7 +504,7 @@ class NativeScalerWithGradNormCount:
     state_dict_key = "amp_scaler"
 
     def __init__(self):
-        self._scaler = torch.amp.GradScaler('cuda')
+        self._scaler = torch.amp.GradScaler(device='cuda')
 
     def __call__(self, loss, optimizer, clip_grad=None, parameters=None, create_graph=False, update_grad=True, layer_names=None):
         self._scaler.scale(loss).backward(create_graph=create_graph)
@@ -773,6 +775,33 @@ class QUEROLoader(torch.utils.data.Dataset):
         return X, Y  # X is EEG and Y is label
 
 
+class KHULALoader(torch.utils.data.Dataset):
+    def __init__(self, root, files, sampling_rate=200):
+        self.root = root
+        self.files = files
+        self.default_rate = 200
+        self.sampling_rate = sampling_rate
+        self.label_map = {3: 0, 6: 1, 12: 2, 24: 3}
+
+    def __len__(self):
+        return len(self.files)
+
+    def __getitem__(self, index):
+        sample = pickle.load(  # so one pkl file is a single sample?
+            open(os.path.join(self.root, self.files[index]), "rb"))
+        X = sample["X"]
+        # the shape is (n_channels, n_samples) -> (66, 4000)
+        if self.sampling_rate != self.default_rate:
+            X = resample(X, 10 * self.sampling_rate, axis=-1)
+        raw_label = int(sample["y"])
+
+        Y = torch.tensor(self.label_map[raw_label], dtype=torch.long)
+
+        X = torch.FloatTensor(X)
+
+        return X, Y  # X is EEG and Y is label
+
+
 class TUEVLoader(torch.utils.data.Dataset):
     def __init__(self, root, files, sampling_rate=200):
         self.root = root
@@ -791,35 +820,6 @@ class TUEVLoader(torch.utils.data.Dataset):
             X = resample(X, 5 * self.sampling_rate, axis=-1)
         Y = int(sample["label"][0] - 1)
         X = torch.FloatTensor(X)
-        return X, Y
-
-
-class KHULALoader(torch.utils.data.Dataset):
-    def __init__(self, root, files, sampling_rate=200):
-        self.root = root
-        self.files = files
-        self.default_rate = 200
-        self.sampling_rate = sampling_rate
-        self.labels = {"3": 1, "6": 2, "12": 3, "24": 4}
-
-    def __len__(self):
-        return len(self.files)
-
-    def __getitem__(self, index):
-        sample = pickle.load(
-            open(os.path.join(self.root, self.files[index]), "rb"))
-        X = sample["X"]
-        if self.sampling_rate != self.default_rate:
-            X = resample(X, 5 * self.sampling_rate, axis=-1)
-
-        class_label = sample["y"]
-
-        if class_label not in self.labels:
-            raise ValueError(f"Unexpected label: {class_label}")
-
-        Y = self.labels[class_label] - 1
-        X = torch.FloatTensor(X)
-        # print("Returning sample with shape: ", X.shape, " and label: ", Y)
         return X, Y
 
 
@@ -1022,7 +1022,18 @@ def get_metrics(output, target, metrics, is_binary, threshold=0.5):
                 "roc_auc": 0.0,
             }
     else:
+
+        # Convert probabilities to class predictions
+        y_pred = output if output.ndim == 1 else np.argmax(output, axis=1)
+
+        print("🔍 Debug: Unique classes in y_true:", np.unique(target))
+        print("🔍 Debug: Unique classes in y_pred:", np.unique(y_pred))
+        print("🔍 Debug: y_true shape:", target.shape)
+        print("🔍 Debug: y_pred shape:", y_pred.shape)
+
         results = multiclass_metrics_fn(
-            target, output, metrics=metrics
-        )
+            target, y_pred, metrics=metrics)
+
+        print("Multiclass metrics: ", results)
+
     return results

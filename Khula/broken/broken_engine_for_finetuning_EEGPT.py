@@ -7,6 +7,7 @@
 # https://github.com/facebookresearch/deit/
 # https://github.com/facebookresearch/dino
 # --------------------------------------------------------
+from ast import arg
 import math
 import sys
 from typing import Iterable, Optional
@@ -21,6 +22,7 @@ def train_class_batch(model, samples, target, criterion, ch_names):
 
     outputs = model(samples)
     loss = criterion(outputs, target)
+
     return loss, outputs
 
 
@@ -35,6 +37,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     model_ema: Optional[ModelEma] = None, log_writer=None,
                     start_steps=None, lr_schedule_values=None, wd_schedule_values=None,
                     num_training_steps_per_epoch=None, update_freq=None, ch_names=None, is_binary=True):
+    print("############### Training one epoch ###############")
     input_chans = None
     if ch_names is not None:
         input_chans = utils.get_input_chans(ch_names)
@@ -44,15 +47,16 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         window_size=1, fmt='{value:.6f}'))
     metric_logger.add_meter('min_lr', utils.SmoothedValue(
         window_size=1, fmt='{value:.6f}'))
-    header = 'Epoch: [{}]'.format(epoch)
+    # header = 'Epoch: [{}]'.format(epoch)
+    header = None  # to avoid printing the header in the log_every function
     print_freq = 10
-
     if loss_scaler is None:
         model.zero_grad()
         model.micro_steps = 0
     else:
         optimizer.zero_grad()
 
+    counter = 0
     for data_iter_step, (samples, targets) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         step = data_iter_step // update_freq
         if step >= num_training_steps_per_epoch:
@@ -69,18 +73,34 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
         samples = samples.float().to(device, non_blocking=True) / 100
         samples = rearrange(samples, 'B N (A T) -> B N A T', T=200)
+
         targets = targets.to(device, non_blocking=True)
         if is_binary:
             targets = targets.float().unsqueeze(-1)
 
         if loss_scaler is None:
             samples = samples.half()
+            print("Using half precision for samples")
             loss, output = train_class_batch(
                 model, samples, targets, criterion, input_chans)
         else:
-            with torch.amp.autocast(device_type='cuda'):
+            device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
+            with torch.autocast(device_type=device_type):
                 loss, output = train_class_batch(
                     model, samples, targets, criterion, input_chans)
+                # if counter < 3:
+                #     print("Using full precision for samples")
+                #     # [16, 4] for [batch size, number of classes]
+                #     print("Pred shape:", output.shape)
+                #     # [16] for [batch size]
+                #     print("Label shape:", targets.shape)
+                #     # prints 4 values (4 logits)
+                #     print("Pred sample:", output[0])
+                #     # prints 1 value (class index 0-3)
+                #     print("Label sample:", targets[0])
+                #     print("Output logits:", output)
+                #     print("Target labels:", targets)
+                #     counter += 1
 
         loss_value = loss.item()
 
@@ -112,11 +132,18 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                 optimizer.zero_grad()
                 if model_ema is not None:
                     model_ema.update(model)
-            loss_scale_value = loss_scaler.state_dict()["scale"]
+            state_dict = loss_scaler.state_dict()
+            if device.type != 'cpu':
+                loss_scale_value = state_dict["scale"]
+            else:
+                print("Using CPU for loss scaling")
+                loss_scale_value = state_dict.get("scale", 1.0)
 
-        torch.cuda.synchronize()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
 
         if is_binary:
+            print("Calculating binary class accuracy")
             class_acc = utils.get_metrics(torch.sigmoid(output).detach().cpu().numpy(
             ), targets.detach().cpu().numpy(), ["accuracy"], is_binary)["accuracy"]
         else:
@@ -160,12 +187,14 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
 @torch.no_grad()
 def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True):
+    class_to_age = {0: 3, 1: 6, 2: 12, 3: 24}
     input_chans = None
     if ch_names is not None:
         input_chans = utils.get_input_chans(ch_names)
     if is_binary:
         criterion = torch.nn.BCEWithLogitsLoss()
     else:
+        print("Using CrossEntropyLoss for multiclass classification")
         criterion = torch.nn.CrossEntropyLoss()
 
     metric_logger = utils.MetricLogger(delimiter="  ")
@@ -177,11 +206,14 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
     true = []
 
     for step, batch in enumerate(metric_logger.log_every(data_loader, 10, header)):
-        # print(f"type(batch): {type(batch)}")
-        # print(f"batch: {batch}")
+        # print("############### Evaluating a batch ###############")
         EEG = batch[0]  # batch[0] is the EEG data - X
+        if EEG.ndim == 2:  # [N, T] because batch size is 1
+            print("EEG is 2D, adding batch dimension")
+            EEG = EEG.unsqueeze(0)  # → [1, N, T]
         target = batch[-1]  # batch[-1] is the target/label - y
         EEG = EEG.float().to(device, non_blocking=True) / 100
+        # B - batch no., N - number of channels, A - number of epochs, T - time points
         EEG = rearrange(EEG, 'B N (A T) -> B N A T', T=200)
         target = target.to(device, non_blocking=True)
         if is_binary:
@@ -194,15 +226,20 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
 
         if is_binary:
             output = torch.sigmoid(output).cpu()
+            pred.append(output)
         else:
-            output = output.cpu()
+            output = torch.softmax(output, dim=1).cpu()
+            pred.append(output)
         target = target.cpu()
 
-        print(f"output is {output} and target is {target}")
+        # output shape should be [B, C] for multiclass
+        # target shape should be [B] for multiclass
 
+        print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+        print(f"======== computing metrics for batch {step} only ========")
+        print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
         results = utils.get_metrics(
             output.numpy(), target.numpy(), metrics, is_binary)
-        pred.append(output)
         true.append(target)
 
         batch_size = EEG.shape[0]
@@ -213,18 +250,12 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print('* loss {losses.global_avg:.3f}'
-          .format(losses=metric_logger.loss))
+          .format(losses=metric_logger.meters['loss']))
 
     pred = torch.cat(pred, dim=0).numpy()
     true = torch.cat(true, dim=0).numpy()
 
-    # with open("predictions.csv", "w", newline="") as f:
-    #     writer = csv.writer(f)
-    #     writer.writerow(["Prediction", "Target"])
-    #     for p, t in zip(pred, true):
-    #         # flatten in case output is multidimensional
-    #         writer.writerow([float(p), float(t)])
-
+    # predicting final metrics
     ret = utils.get_metrics(pred, true, metrics, is_binary, 0.5)
-    ret['loss'] = metric_logger.loss.global_avg
+    ret['loss'] = metric_logger.meters['loss'].global_avg
     return ret

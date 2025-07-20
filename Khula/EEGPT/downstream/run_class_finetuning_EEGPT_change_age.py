@@ -20,7 +20,7 @@ from optim_factory import create_optimizer, get_parameter_groups, LayerDecayValu
 from engine_for_finetuning_EEGPT import train_one_epoch, evaluate
 from utils import NativeScalerWithGradNormCount as NativeScaler
 import utils
-from Khula.EEGPT.downstream.Modules.models.EEGPT_mcae_finetune_change import EEGPTClassifier
+from EEGPT.downstream.Modules.models.EEGPT_mcae_finetune_change import EEGPTClassifier
 
 
 def get_args():
@@ -154,17 +154,18 @@ def get_args():
 
     parser.add_argument('--start_epoch', default=0, type=int, metavar='N',
                         help='start epoch')
-    parser.add_argument('--eval', action='store_true',
+    parser.add_argument('--eval', action='store_true', default=False,
                         help='Perform evaluation only')
     parser.add_argument('--dist_eval', action='store_true', default=False,
                         help='Enabling distributed evaluation')
-    parser.add_argument('--num_workers', default=10, type=int)
+    parser.add_argument('--num_workers', default=0, type=int)
     parser.add_argument('--pin_mem', action='store_true',
                         help='Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.')
     parser.add_argument('--no_pin_mem', action='store_false', dest='pin_mem')
     parser.set_defaults(pin_mem=True)
 
     # distributed training parameters
+    parser.add_argument('--distributed', action='store_true')
     parser.add_argument('--world_size', default=1, type=int,
                         help='number of distributed processes')
     parser.add_argument('--local_rank', default=-1, type=int)
@@ -212,12 +213,22 @@ def get_models(args):
     #                   'PO3', 'POZ', 'PO4',
     #                   'O1', 'O2']
 
+    # use_channels_names = [
+    #     'FP1', 'FPZ', 'FP2',
+    #     'F7', 'F3', 'FZ', 'F4', 'F8',
+    #     'T7', 'C3', 'CZ', 'C4', 'T8',
+    #     'P7', 'P3', 'PZ', 'P4', 'P8',
+    #     'O1', 'O2']
+
     use_channels_names = [
-        'FP1', 'FPZ', 'FP2',
-        'F7', 'F3', 'FZ', 'F4', 'F8',
-        'T7', 'C3', 'CZ', 'C4', 'T8',
-        'P7', 'P3', 'PZ', 'P4', 'P8',
-        'O1', 'O2']
+        'FZ', 'F3', 'F4', 'F7', 'F8',
+        'C3', 'CZ', 'C4', 'T7', 'T8',
+        'P3', 'PZ', 'P4', 'P7', 'P8',
+        'O1', 'O2',
+        'FC1', 'FC2',
+        'CP3', 'CP4',
+        'PO3', 'PO4'
+    ]
 
     ch_names = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF',
                 'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
@@ -226,19 +237,13 @@ def get_models(args):
     model = EEGPTClassifier(
         num_classes=args.nb_classes,
         in_channels=len(ch_names),
-        img_size=[len(use_channels_names), 1000],
+        # 2000 time points in each sample
+        img_size=[len(use_channels_names), 2000],
         use_channels_names=use_channels_names,
         use_chan_conv=True,
         use_mean_pooling=args.use_mean_pooling,)
 
-    # model = create_model(
-    #     args.model,
-    #     drop_rate=args.drop,
-    #     drop_path_rate=args.drop_path,
-    #     attn_drop_rate=args.attn_drop_rate,
-    #     use_mean_pooling=args.use_mean_pooling,
-    #     qkv_bias=args.qkv_bias,
-    # )
+    print("This is the head of the model:", model.get_classifier())
 
     return model
 
@@ -265,12 +270,13 @@ def get_dataset(args):
                    "cohen_kappa", "f1_weighted"]
 
     elif args.dataset == 'KHULA':
+        print("Preparing KHULA dataset...")
         train_dataset, test_dataset, val_dataset = utils.prepare_KHULA_dataset(
             "/scratch/chntzi001/khula/processed/")
-        ch_names = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF',
-                    'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
 
-        ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
+        ch_names = ['AF6', 'AF4', 'F2', 'FZ', 'FCZ', 'AF2', 'AFZ', 'FC1', 'AF1', 'F1', 'AF3', 'F3', 'AF5', 'FC3', 'C1', 'F7', 'FC5', 'C3', 'FT7', 'C5', 'T7', 'CP5', 'TP7', 'CP3', 'CP1', 'CZ', 'TP9', 'P7', 'P5', 'P3', 'P1', 'PZ',
+                    'M1', 'P9', 'PO7', 'PO3', 'PO9', 'O1', 'PO1', 'POZ', 'O9', 'OZ', 'PO2', 'P2', 'CP2', 'C2', 'O10', 'O2', 'PO4', 'P4', 'PO8', 'P6', 'CP4', 'C4', 'P8', 'CP6', 'TP10', 'TP8', 'C6', 'FC2', 'T8', 'FC4', 'FT8', 'FC6', 'F4', 'F8']
+
         args.nb_classes = 4
         metrics = ["accuracy", "balanced_accuracy",
                    "cohen_kappa", "f1_weighted"]
@@ -279,9 +285,6 @@ def get_dataset(args):
         train_dataset, test_dataset, val_dataset = utils.prepare_TUSZ_dataset(
             None)
 
-        # ch_names = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', \
-        #             'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
-        # ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
         ch_names = ['FP1', 'F3', 'C3', 'P3', 'F7', 'T3', 'T5', 'O1', 'FZ',
                     'CZ', 'PZ', 'FP2', 'F4', 'C4', 'P4', 'F8', 'T4', 'T6', 'O2']
         args.nb_classes = 8
@@ -315,18 +318,23 @@ def main(args, ds_init):
         args)
 
     if args.disable_eval_during_finetuning:
+        print("!!!!!!!!!Disabling evaluation during finetuning")
         dataset_val = None
         dataset_test = None
 
-    if True:  # args.distributed:
+    if True:
         num_tasks = utils.get_world_size()
         global_rank = utils.get_rank()
-        if not args.eval:
+        if not args.eval and torch.cuda.is_available():
             sampler_train = torch.utils.data.DistributedSampler(
                 dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
             )
-            print("Sampler_train = %s" % str(sampler_train))
+        else:
+            sampler_train = torch.utils.data.SequentialSampler(
+                dataset_train)
+        print("Sampler_train = %s" % str(sampler_train))
         if args.dist_eval and dataset_val is not None:
+            print("Setting up distributed evaluation")
             if len(dataset_val) % num_tasks != 0:
                 print('Warning: Enabling distributed evaluation with an eval dataset not divisible by process number. '
                       'This will slightly alter validation results as extra duplicate entries are added to achieve '
@@ -352,13 +360,15 @@ def main(args, ds_init):
     else:
         log_writer = None
 
-    data_loader_train = torch.utils.data.DataLoader(
-        dataset_train, sampler=sampler_train,
-        batch_size=args.batch_size,
-        num_workers=args.num_workers,
-        pin_memory=args.pin_mem,
-        drop_last=True,
-    )
+    if not args.eval:  # if we are not in evaluation mode, so we are training
+        print("Setting up training dataset")
+        data_loader_train = torch.utils.data.DataLoader(
+            dataset_train, sampler=sampler_train,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
+            pin_memory=args.pin_mem,
+            drop_last=True,
+        )
 
     if dataset_val is not None:
         data_loader_val = torch.utils.data.DataLoader(
@@ -368,7 +378,9 @@ def main(args, ds_init):
             pin_memory=args.pin_mem,
             drop_last=False
         )
+
         if type(dataset_test) == list:
+            print("dataset_test is a list")
             data_loader_test = [torch.utils.data.DataLoader(
                 dataset, sampler=sampler,
                 batch_size=int(1.5 * args.batch_size),
@@ -376,6 +388,7 @@ def main(args, ds_init):
                 pin_memory=args.pin_mem,
                 drop_last=False
             ) for dataset, sampler in zip(dataset_test, sampler_test)]
+            print("data_loader_test type:", type(data_loader_test))
         else:
             data_loader_test = torch.utils.data.DataLoader(
                 dataset_test, sampler=sampler_test,
@@ -403,32 +416,9 @@ def main(args, ds_init):
             checkpoint = torch.load(
                 args.finetune, map_location='cpu', weights_only=False)
 
+        print("================== Loading checkpoint =================")
         print("Load ckpt from %s" % args.finetune)
-        # checkpoint_model = None
-        # for model_key in args.model_key.split('|'):
-        #     if model_key in checkpoint:
-        #         checkpoint_model = checkpoint[model_key]
-        #         print("Load state_dict by model_key = %s" % model_key)
-        #         break
-        # if checkpoint_model is None:
-        #     checkpoint_model = checkpoint
-        # if (checkpoint_model is not None) and (args.model_filter_name != ''):
-        #     all_keys = list(checkpoint_model.keys())
-        #     new_dict = OrderedDict()
-        #     for key in all_keys:
-        #         if key.startswith('student.'):
-        #             new_dict[key[8:]] = checkpoint_model[key]
-        #         else:
-        #             pass
-        #     checkpoint_model = new_dict
 
-        # state_dict = model.state_dict()
-        # for k in ['head.weight', 'head.bias']:
-        #     if k in checkpoint_model and checkpoint_model[k].shape != state_dict[k].shape:
-        #         print(f"Removing key {k} from pretrained checkpoint")
-        #         del checkpoint_model[k]
-
-        # all_keys = list(checkpoint_model.keys())
         checkpoint_model = checkpoint['state_dict']
         utils.load_state_dict(model, checkpoint_model,
                               prefix=args.model_prefix)
@@ -449,7 +439,7 @@ def main(args, ds_init):
     n_parameters = sum(p.numel()
                        for p in model.parameters() if p.requires_grad)
 
-    print("Model = %s" % str(model_without_ddp))
+    # print("Model = %s" % str(model_without_ddp))
     print('number of params:', n_parameters)
 
     total_batch_size = args.batch_size * args.update_freq * utils.get_world_size()
@@ -514,11 +504,13 @@ def main(args, ds_init):
     print("Max WD = %.7f, Min WD = %.7f" %
           (max(wd_schedule_values), min(wd_schedule_values)))
 
+    # selects loss function
     if args.nb_classes == 1:
         criterion = torch.nn.BCEWithLogitsLoss()
     elif args.smoothing > 0.:
         criterion = LabelSmoothingCrossEntropy(smoothing=args.smoothing)
     else:
+        print("Using CrossEntropyLoss")
         criterion = torch.nn.CrossEntropyLoss()
 
     print("criterion = %s" % str(criterion))
@@ -528,6 +520,7 @@ def main(args, ds_init):
         optimizer=optimizer, loss_scaler=loss_scaler, model_ema=model_ema)
 
     if args.eval:
+        print("$$$$$$$$$$$$$$$$$$$ Performing evaluation only, so skipping training $$$$$$$$$$$$$$$$$$$")
         balanced_accuracy = []
         accuracy = []
         for data_loader in data_loader_test:
@@ -564,6 +557,8 @@ def main(args, ds_init):
                 loss_scaler=loss_scaler, epoch=epoch, model_ema=model_ema, save_ckpt_freq=args.save_ckpt_freq)
 
         if data_loader_val is not None:
+            print("============== Evaluating on validation and test set ==============")
+            print("Here batch size is = %d" % int(1.5 * args.batch_size))
             val_stats = evaluate(data_loader_val, model, device, header='Val:',
                                  ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1)
             print(
