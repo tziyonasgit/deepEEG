@@ -15,10 +15,11 @@ from timm.utils import ModelEma
 import utils
 from einops import rearrange
 import csv
+import numpy as np
+import wandb
 
 
 def train_class_batch(model, samples, target, criterion, ch_names):
-
     outputs = model(samples)
     loss = criterion(outputs, target)
     return loss, outputs
@@ -68,7 +69,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     param_group["weight_decay"] = wd_schedule_values[it]
 
         samples = samples.float().to(device, non_blocking=True) / 100
-        samples = rearrange(samples, 'B N (A T) -> B N A T', T=200)
+        samples = rearrange(samples, 'B N (A T) -> B N A T', T=64)
         targets = targets.to(device, non_blocking=True)
         if is_binary:
             targets = targets.float().unsqueeze(-1)
@@ -182,7 +183,7 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
         EEG = batch[0]  # batch[0] is the EEG data - X
         target = batch[-1]  # batch[-1] is the target/label - y
         EEG = EEG.float().to(device, non_blocking=True) / 100
-        EEG = rearrange(EEG, 'B N (A T) -> B N A T', T=200)
+        EEG = rearrange(EEG, 'B N (A T) -> B N A T', T=64)
         target = target.to(device, non_blocking=True)
         if is_binary:
             target = target.float().unsqueeze(-1)
@@ -194,11 +195,11 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
 
         if is_binary:
             output = torch.sigmoid(output).cpu()
+
         else:
             output = output.cpu()
+            output = torch.nn.functional.softmax(output, dim=1)
         target = target.cpu()
-
-        print(f"output is {output} and target is {target}")
 
         results = utils.get_metrics(
             output.numpy(), target.numpy(), metrics, is_binary)

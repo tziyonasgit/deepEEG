@@ -7,6 +7,7 @@ import torch
 import torch.backends.cudnn as cudnn
 import json
 import os
+import wandb
 
 #
 from pathlib import Path
@@ -20,16 +21,18 @@ from optim_factory import create_optimizer, get_parameter_groups, LayerDecayValu
 from engine_for_finetuning_EEGPT import train_one_epoch, evaluate
 from utils import NativeScalerWithGradNormCount as NativeScaler
 import utils
-from EEGPT.downstream.Modules.models.EEGPT_mcae_finetune_change import EEGPTClassifier
+from Modules.models.EEGPT_mcae_finetune_change import EEGPTClassifier
 
 
 def get_args():
     parser = argparse.ArgumentParser(
         'fine-tuning and evaluation script for EEG classification', add_help=False)
-    parser.add_argument('--batch_size', default=64, type=int)
-    parser.add_argument('--epochs', default=30, type=int)
+    parser.add_argument('--batch_size', default=256, type=int)
+    parser.add_argument('--epochs', default=10, type=int)
     parser.add_argument('--update_freq', default=1, type=int)
-    parser.add_argument('--save_ckpt_freq', default=5, type=int)
+    parser.add_argument('--save_ckpt_freq', default=50, type=int)
+    parser.add_argument('--output_dir', default="./outputs", type=str)
+    parser.add_argument('--log_dir', default="./log", type=str)
 
     # robust evaluation
     parser.add_argument('--robust_test', default=None, type=str,
@@ -77,7 +80,7 @@ def get_args():
                         help='Optimizer Epsilon (default: 1e-8)')
     parser.add_argument('--opt_betas', default=None, type=float, nargs='+', metavar='BETA',
                         help='Optimizer Betas (default: None, use opt default)')
-    parser.add_argument('--clip_grad', type=float, default=None, metavar='NORM',
+    parser.add_argument('--clip_grad', type=float, default=5.0, metavar='NORM',
                         help='Clip gradient norm (default: None, no clipping)')
     parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
                         help='SGD momentum (default: 0.9)')
@@ -87,9 +90,9 @@ def get_args():
         weight decay. We use a cosine schedule for WD and using a larger decay by
         the end of training improves performance for ViTs.""")
 
-    parser.add_argument('--lr', type=float, default=5e-4, metavar='LR',
+    parser.add_argument('--lr', type=float, default=1e-4, metavar='LR',
                         help='learning rate (default: 5e-4)')
-    parser.add_argument('--layer_decay', type=float, default=0.9)
+    parser.add_argument('--layer_decay', type=float, default=0.65)
 
     parser.add_argument('--warmup_lr', type=float, default=1e-6, metavar='LR',
                         help='warmup learning rate (default: 1e-6)')
@@ -130,13 +133,9 @@ def get_args():
                         action='store_true', default=False)
 
     # Dataset parameters
-    parser.add_argument('--nb_classes', default=0, type=int,
+    parser.add_argument('--nb_classes', default=4, type=int,
                         help='number of the classification types')
 
-    parser.add_argument('--output_dir', default='',
-                        help='path where to save, empty for no saving')
-    parser.add_argument('--log_dir', default=None,
-                        help='path where to tensorboard log')
     parser.add_argument('--device', default='cuda',
                         help='device to use for training / testing')
     parser.add_argument('--seed', default=0, type=int)
@@ -144,7 +143,7 @@ def get_args():
                         help='resume from checkpoint')
     parser.add_argument('--auto_resume', action='store_true')
     parser.add_argument('--no_auto_resume',
-                        action='store_false', dest='auto_resume')
+                        action='store_true', dest='auto_resume')
     parser.set_defaults(auto_resume=True)
 
     parser.add_argument('--save_ckpt', action='store_true')
@@ -156,7 +155,7 @@ def get_args():
                         help='start epoch')
     parser.add_argument('--eval', action='store_true', default=False,
                         help='Perform evaluation only')
-    parser.add_argument('--dist_eval', action='store_true', default=False,
+    parser.add_argument('--dist_eval', action='store_true', default=True,
                         help='Enabling distributed evaluation')
     parser.add_argument('--num_workers', default=0, type=int)
     parser.add_argument('--pin_mem', action='store_true',
@@ -175,7 +174,7 @@ def get_args():
 
     parser.add_argument('--enable_deepspeed',
                         action='store_true', default=False)
-    parser.add_argument('--dataset', default='TUAB', type=str,
+    parser.add_argument('--dataset', default='KHULA', type=str,
                         help='dataset: TUAB | TUEV')
 
     known_args, _ = parser.parse_known_args()
@@ -220,25 +219,55 @@ def get_models(args):
     #     'P7', 'P3', 'PZ', 'P4', 'P8',
     #     'O1', 'O2']
 
-    use_channels_names = [
-        'FZ', 'F3', 'F4', 'F7', 'F8',
-        'C3', 'CZ', 'C4', 'T7', 'T8',
-        'P3', 'PZ', 'P4', 'P7', 'P8',
-        'O1', 'O2',
-        'FC1', 'FC2',
-        'CP3', 'CP4',
-        'PO3', 'PO4'
-    ]
+    # use_channels_names = [
+    #     'FZ', 'F3', 'F4', 'F7', 'F8',
+    #     'C3', 'CZ', 'C4', 'T7', 'T8',
+    #     'P3', 'PZ', 'P4', 'P7', 'P8',
+    #     'O1', 'O2',
+    #     'FC1', 'FC2',
+    #     'CP3', 'CP4',
+    #     'PO3', 'PO4'
+    # ]
 
-    ch_names = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF',
-                'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
+    # ch_names = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF',
+    #            'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
+    # ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
 
-    ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
+    # ordered subset of channel names the model expects and uses during training
+    # # 58 channels here which matches checkpoint
+    use_channels_names = ['FP1', 'FPZ', 'FP2',
+                          'AF3', 'AF4',
+                          'F7', 'F5', 'F3', 'F1', 'FZ', 'F2', 'F4', 'F6', 'F8',
+                          'FT7', 'FC5', 'FC3', 'FC1', 'FCZ', 'FC2', 'FC4', 'FC6', 'FT8',
+                          'T7', 'C5', 'C3', 'C1', 'CZ', 'C2', 'C4', 'C6', 'T8',
+                          'TP7', 'CP5', 'CP3', 'CP1', 'CPZ', 'CP2', 'CP4', 'CP6', 'TP8',
+                          'P7', 'P5', 'P3', 'P1', 'PZ', 'P2', 'P4', 'P6', 'P8',
+                          'PO7', 'PO3', 'POZ',  'PO4', 'PO8',
+                          'O1', 'OZ', 'O2', ]
+
+    # use_channels_names = [
+    #     'FZ', 'F3', 'F4', 'F7', 'F8',
+    #     'C3', 'CZ', 'C4', 'T7', 'T8',
+    #     'P3', 'PZ', 'P4', 'P7', 'P8',
+    #     'O1', 'O2',
+    #     'FC1', 'FC2',
+    #     'CP3', 'CP4',
+    #     'PO3', 'PO4'
+    # ]
+
+    # full set of EEG channel names available in your dataset
+    ch_names = ['P1', 'PO1', 'F8', 'C2', 'CZ', 'PO2', 'FPZ', 'F3', 'CP4', 'CP3', 'PO3', 'C5', 'FC6', 'PO10', 'FP2', 'FC4', 'FT7', 'PO8', 'CP5', 'F2', 'P4', 'AFZ', 'P6', 'O2', 'P2', 'FC5', 'FC1', 'TP9', 'T7', 'C4',
+                'P8', 'T8', 'OZ', 'AF4', 'CP1', 'FCZ', 'TP7', 'PO4', 'AF3', 'C3', 'O1', 'P7', 'F4', 'F1', 'FT8', 'CP2', 'CP6', 'PO7', 'P9', 'P5', 'P3', 'C6', 'PZ', 'FC2', 'PO9', 'POZ', 'C1', 'TP8', 'FZ', 'F7', 'P10', 'TP10', 'FC3']
+
+    # in_channels -> tells model how many channels to expect in the EEG data
+    # use_channels_names -> tells model which channels to use during training
+    # every channel in use_channels_names must be present in ch_names, ch_names > use_channels_names
+
     model = EEGPTClassifier(
         num_classes=args.nb_classes,
         in_channels=len(ch_names),
         # 2000 time points in each sample
-        img_size=[len(use_channels_names), 2000],
+        img_size=[len(use_channels_names), 1024],
         use_channels_names=use_channels_names,
         use_chan_conv=True,
         use_mean_pooling=args.use_mean_pooling,)
@@ -293,8 +322,106 @@ def get_dataset(args):
     return train_dataset, test_dataset, val_dataset, ch_names, metrics
 
 
+def write_args_to_file(args):
+    args_file = os.path.join(args.output_dir, "args.txt")
+    with open(args_file, "w") as f:
+        f.write(
+            f"date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"name of run: {run_name}\n")
+        f.write(f"----------- main hyperparameters: -----------\n")
+        f.write(f"batch_size: {args.batch_size}\n")
+        f.write(f"epochs: {args.epochs}\n")
+        f.write(f"update_freq: {args.update_freq}\n")
+        f.write(f"save_ckpt_freq: {args.save_ckpt_freq}\n")
+        f.write(f"model_ema: {args.model_ema}\n")
+        f.write(f"model_ema_decay: {args.model_ema_decay}\n")
+        f.write(f"opt: {args.opt}\n")
+        f.write(f"opt_eps: {args.opt_eps}\n")
+        f.write(f"opt_betas: {args.opt_betas}\n")
+        f.write(f"clip_grad: {args.clip_grad}\n")
+        f.write(f"momentum: {args.momentum}\n")
+        f.write(f"weight_decay: {args.weight_decay}\n")
+        f.write(f"weight_decay_end: {args.weight_decay_end}\n")
+        f.write(f"lr: {lr}\n")
+        f.write(f"layer_decay: {args.layer_decay}\n")
+        f.write(f"warmup_lr: {args.warmup_lr}\n")
+        f.write(f"min_lr: {args.min_lr}\n")
+        f.write(f"warmup_epochs: {args.warmup_epochs}\n")
+        f.write(f"warmup_steps: {args.warmup_steps}\n")
+        f.write(f"--------------------------------------------\n")
+        f.write(f"robust_test: {args.robust_test}\n")
+        f.write(f"model: {args.model}\n")
+        f.write(f"qkv_bias: {args.qkv_bias}\n")
+        f.write(f"rel_pos_bias: {args.rel_pos_bias}\n")
+        f.write(f"abs_pos_emb: {args.abs_pos_emb}\n")
+        f.write(f"layer_scale_init_value: {args.layer_scale_init_value}\n")
+        f.write(f"input_size: {args.input_size}\n")
+        f.write(f"drop: {args.drop}\n")
+        f.write(f"attn_drop_rate: {args.attn_drop_rate}\n")
+        f.write(f"drop_path: {args.drop_path}\n")
+        f.write(
+            f"disable_eval_during_finetuning: {args.disable_eval_during_finetuning}\n")
+        f.write(f"model_ema_force_cpu: {args.model_ema_force_cpu}\n")
+        f.write(f"smoothing: {args.smoothing}\n")
+        f.write(f"reprob: {args.reprob}\n")
+        f.write(f"remode: {args.remode}\n")
+        f.write(f"recount: {args.recount}\n")
+        f.write(f"resplit: {args.resplit}\n")
+        f.write(f"finetune: {args.finetune}\n")
+        f.write(f"model_key: {args.model_key}\n")
+        f.write(f"model_prefix: {args.model_prefix}\n")
+        f.write(f"model_filter_name: {args.model_filter_name}\n")
+        f.write(f"init_scale: {args.init_scale}\n")
+        f.write(f"use_mean_pooling: {args.use_mean_pooling}\n")
+        f.write(
+            f"disable_weight_decay_on_rel_pos_bias: {args.disable_weight_decay_on_rel_pos_bias}\n")
+        f.write(f"nb_classes: {args.nb_classes}\n")
+        f.write(f"output_dir: {args.output_dir}\n")
+        f.write(f"log_dir: {args.log_dir}\n")
+        f.write(f"device: {args.device}\n")
+        f.write(f"seed: {args.seed}\n")
+        f.write(f"resume: {args.resume}\n")
+        f.write(f"auto_resume: {args.auto_resume}\n")
+        f.write(f"save_ckpt: {args.save_ckpt}\n")
+        f.write(f"start_epoch: {args.start_epoch}\n")
+        f.write(f"eval: {args.eval}\n")
+        f.write(f"dist_eval: {args.dist_eval}\n")
+        f.write(f"num_workers: {args.num_workers}\n")
+        f.write(f"pin_mem: {args.pin_mem}\n")
+        f.write(f"distributed: {args.distributed}\n")
+        f.write(f"world_size: {args.world_size}\n")
+        f.write(f"local_rank: {args.local_rank}\n")
+        f.write(f"dist_on_itp: {args.dist_on_itp}\n")
+        f.write(f"dist_url: {args.dist_url}\n")
+        f.write(f"enable_deepspeed: {args.enable_deepspeed}\n")
+        f.write(f"dataset: {args.dataset}\n")
+
+
+def add_args_to_file(args, line):
+    args_file = os.path.join(args.output_dir, "args.txt")
+    with open(args_file, "a") as f:
+        f.write(f"{line}\n")
+
+
 def main(args, ds_init):
     # utils.init_distributed_mode(args) - not running distributed mode
+
+    global run_name
+    wandb.init(
+        project="deepEEG",
+        config=vars(args)
+    )
+    config = wandb.config
+    args.layer_decay = config.layer_decay
+    args.weight_decay = config.weight_decay
+    run_name = f"ld{config.layer_decay:.5f}_wd{config.weight_decay:.5f}_bs{args.batch_size}"
+    wandb.run.name = run_name
+    args.output_dir = f"/scratch/chntzi001/khula/checkpoints/finetune_khula_eegpt/{run_name}"
+    args.log_dir = f"./log/finetune_khula_eegpt/{run_name}"
+    os.makedirs(args.output_dir, exist_ok=True)
+    os.makedirs(args.log_dir, exist_ok=True)
+    args.finetune = "/home/chntzi001/deepEEG/EEGPT/downstream/Checkpoints/eegpt_mcae_58chs_4s_large4E.ckpt"
+    write_args_to_file(args)
 
     if ds_init is not None:
         utils.create_ds_config(args)
@@ -403,7 +530,7 @@ def main(args, ds_init):
 
     model = get_models(args)
 
-    patch_size = 200  # model.patch_size
+    patch_size = 64  # model.patch_size
     print("Patch size = %s" % str(patch_size))
     args.window_size = (1, args.input_size // patch_size)
     args.patch_size = patch_size
@@ -444,12 +571,18 @@ def main(args, ds_init):
 
     total_batch_size = args.batch_size * args.update_freq * utils.get_world_size()
     num_training_steps_per_epoch = len(dataset_train) // total_batch_size
-    print("LR = %.8f" % args.lr)
+    print("LR = %.8f" % lr)
     print("Batch size = %d" % total_batch_size)
     print("Update frequent = %d" % args.update_freq)
     print("Number of training examples = %d" % len(dataset_train))
     print("Number of training training per epoch = %d" %
           num_training_steps_per_epoch)
+
+    add_args_to_file(args, "--------------------------")
+    line = "Number of training examples = %d" % len(dataset_train)
+    add_args_to_file(args, line)
+    line = "Number of training per epoch = %d" % num_training_steps_per_epoch
+    add_args_to_file(args, line)
 
     num_layers = model_without_ddp.get_num_layers()
     if args.layer_decay < 1.0:
@@ -550,6 +683,8 @@ def main(args, ds_init):
             num_training_steps_per_epoch=num_training_steps_per_epoch, update_freq=args.update_freq,
             ch_names=ch_names, is_binary=args.nb_classes == 1
         )
+        wandb.log({f"train/{k}": v for k, v in train_stats.items()}
+                  | {"epoch": epoch})
 
         if args.output_dir and args.save_ckpt:
             utils.save_model(
@@ -573,7 +708,7 @@ def main(args, ds_init):
                 if args.output_dir and args.save_ckpt:
                     utils.save_model(
                         args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
-                        loss_scaler=loss_scaler, epoch="best", model_ema=model_ema)
+                        loss_scaler=loss_scaler, epochNum=epoch, epoch="best", model_ema=model_ema)
                 max_accuracy_test = test_stats["accuracy"]
 
             print(
@@ -640,6 +775,8 @@ def main(args, ds_init):
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     print('Training time {}'.format(total_time_str))
+
+    wandb.finish()
 
 
 if __name__ == '__main__':

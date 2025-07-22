@@ -580,7 +580,7 @@ def cosine_scheduler(base_value, final_value, epochs, niter_per_ep, warmup_epoch
     return schedule
 
 
-def save_model(args, epoch, model, model_without_ddp, optimizer, loss_scaler, model_ema=None, optimizer_disc=None, save_ckpt_freq=1):
+def save_model(args, epoch, model, model_without_ddp, optimizer, loss_scaler, epochNum=None, model_ema=None, optimizer_disc=None, save_ckpt_freq=1):
     output_dir = Path(args.output_dir)
     epoch_name = str(epoch)
 
@@ -588,7 +588,7 @@ def save_model(args, epoch, model, model_without_ddp, optimizer, loss_scaler, mo
         checkpoint_paths = [output_dir / 'checkpoint.pth']
         if epoch == 'best':
             checkpoint_paths = [output_dir /
-                                ('checkpoint-%s.pth' % epoch_name),]
+                                ('checkpoint-%s-%s.pth' % (epoch_name, epochNum))]
         elif args.save_ckpt_freq > 0 and (epoch + 1) % save_ckpt_freq == 0:
             checkpoint_paths.append(
                 output_dir / ('checkpoint-%s.pth' % epoch_name))
@@ -1022,7 +1022,18 @@ def get_metrics(output, target, metrics, is_binary, threshold=0.5):
                 "roc_auc": 0.0,
             }
     else:
-        results = multiclass_metrics_fn(
-            target, output, metrics=metrics
-        )
+
+        # y_true is target, y_prob is output
+        y_true = target
+        y_prob = output
+        try:
+            results = multiclass_metrics_fn(
+                y_true=target, y_prob=output, metrics=metrics
+            )
+        except Exception as e:
+            print("Metric computation failed!")
+            print("y_true:", y_true)
+            print("y_prob:", y_prob)
+            raise e
+
     return results

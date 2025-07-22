@@ -23,16 +23,40 @@ from einops import rearrange
 logger = getLogger()
 
 
-CHANNEL_DICT = {k.upper(): v for v, k in enumerate(
-    ['FP1', 'FPZ', 'FP2',
-     "AF7", 'AF3', 'AF4', "AF8",
-     'F7', 'F5', 'F3', 'F1', 'FZ', 'F2', 'F4', 'F6', 'F8',
-     'FT7', 'FC5', 'FC3', 'FC1', 'FCZ', 'FC2', 'FC4', 'FC6', 'FT8',
-     'T7', 'C5', 'C3', 'C1', 'CZ', 'C2', 'C4', 'C6', 'T8',
-     'TP7', 'CP5', 'CP3', 'CP1', 'CPZ', 'CP2', 'CP4', 'CP6', 'TP8',
-     'P7', 'P5', 'P3', 'P1', 'PZ', 'P2', 'P4', 'P6', 'P8',
-     'PO7', "PO5", 'PO3', 'POZ', 'PO4', "PO6", 'PO8',
-     'O1', 'OZ', 'O2', ])}
+CHANNEL_DICT = {k.upper(): v for v, k in enumerate(['PO12', 'CCP2H', 'FFC5H', 'OI1', 'PO7', 'CPPZ',
+                                                    'TP7', 'PO2', 'FC3', 'FTT7H', 'PPO8', 'CCP4H',
+                                                    'P11', 'FCC5H', 'FFC4H', 'FP1', 'CPP2H', 'FFT7H',
+                                                    'P1', 'I2', 'AFF6H', 'FZ', 'PO4', 'FCC2H',
+                                                    'F8', 'FT9', 'CP2', 'AF3', 'FCZ', 'POO11H',
+                                                    'FPZ', 'F3', 'P8', 'FC2', 'F1', 'CCP3H',
+                                                    'CP6', 'PO1', 'C1', 'AFZ', 'C3', 'CB1',
+                                                    'FTT8H', 'POO12H', 'TP9', 'I1', 'FP2', 'POO10H',
+                                                    'CPP1H', 'CPP4H', 'TTP8H', 'AFF5H', 'PO10', 'POO9H',
+                                                    'POO3', 'CP5', 'PO3', 'FC6', 'FTT9H', 'PPOZ',
+                                                    'TPP5H', 'POO4', 'CB2', 'FT7', 'CPZ', 'CP1',
+                                                    'PPO1', 'CP3', 'CCP5H', 'O2', 'FCC1H', 'CP4',
+                                                    'FT8', 'T9', 'PO5', 'P2', 'P5', 'POZ',
+                                                    'FC1', 'CPP3H', 'C5', 'P9', 'P10', 'PO6',
+                                                    'FFT8H', 'CCP1H', 'C2', 'POOZ', 'T7', 'POO7',
+                                                    'FFC3H', 'F6', 'FCCZ', 'TPP8H', 'F7', 'P4',
+                                                    'P3', 'AF8', 'PPO2', 'AF4', 'FFC2H', 'FFC1H',
+                                                    'P6', 'F2', 'C6', 'P12', 'TP10', 'CZ',
+                                                    'IZ', 'CCP6H', 'TP8', 'PO11', 'OI2', 'FC5',
+                                                    'TTP7H', 'CPP5H', 'F5', 'POO8', 'CPP6H', 'OZ',
+                                                    'PO9', 'AF7', 'PZ', 'O1', 'FC4', 'PO8',
+                                                    'F4', 'FCC3H', 'T10', 'P7', 'FT10', 'FCC4H',
+                                                    'FCC6H', 'T8', 'PPO7', 'C4', 'FFC6H', 'FTT10H']
+                                                   )}
+
+# ['FP1', 'FPZ', 'FP2',
+#  'AF7', 'AF3', 'AF4', 'AF8',
+#  'F7', 'F5', 'F3', 'F1', 'FZ', 'F2', 'F4', 'F6', 'F8',
+#  'FT7', 'FC5', 'FC3', 'FC1', 'FCZ', 'FC2', 'FC4', 'FC6', 'FT8',
+#  'T7', 'C5', 'C3', 'C1', 'CZ', 'C2', 'C4', 'C6', 'T8',
+#  'TP7', 'CP5', 'CP3', 'CP1', 'CPZ', 'CP2', 'CP4', 'CP6', 'TP8',
+#  'P7', 'P5', 'P3', 'P1', 'PZ', 'P2', 'P4', 'P6', 'P8', 'PO1', 'PO2',
+#  'PO7', 'PO5', 'PO3', 'POZ', 'PO4', 'PO6', 'PO8', 'PO10',
+#  'O1', 'OZ', 'O2', 'AFZ', 'TP9', 'P9', 'PO9', 'P10']
 
 ################################# Utils ######################################
 
@@ -319,34 +343,19 @@ class PatchEmbed(nn.Module):
     """ Image to Patch Embedding
     """
 
-    def __init__(self, img_size=(64, 2000), patch_size=16, patch_stride=None, embed_dim=768):
+    def __init__(self, img_size=(64, 1000), patch_size=16, patch_stride=None, embed_dim=768):
         super().__init__()
         self.img_size = img_size
-
-        if isinstance(patch_size, int):
-            patch_size = (1, patch_size)
-        if patch_stride is None:
-            patch_stride = patch_size
-        elif isinstance(patch_stride, int):
-            patch_stride = (1, patch_stride)
-
         self.patch_size = patch_size
         self.patch_stride = patch_stride
-
-        print("INIT PATCH SIZE:", patch_size)
-        print("INIT STRIDE:", patch_stride)
         if patch_stride is None:
             self.num_patches = ((img_size[0]), (img_size[1] // patch_size))
         else:
             self.num_patches = (
-                (img_size[0] - patch_size[0]) // patch_stride[0] + 1,
-                (img_size[1] - patch_size[1]) // patch_stride[1] + 1
-            )
+                (img_size[0]), ((img_size[1] - patch_size) // patch_stride + 1))
 
-        print("NUM PATCHES:", self.num_patches, flush=True)
-
-        self.proj = nn.Conv2d(1, embed_dim, kernel_size=patch_size,
-                              stride=patch_stride)
+        self.proj = nn.Conv2d(1, embed_dim, kernel_size=(1, patch_size),
+                              stride=(1, patch_size if patch_stride is None else patch_stride))
 
     def forward(self, x):
         # x: B,C,T
@@ -463,6 +472,10 @@ class EEGTransformerReconstructor(nn.Module):
             if blk.return_attention == True:
                 return x
 
+        # x = self.reconstructor_norm(x)
+
+        # x = self.reconstructor_proj(x)
+
         return x
 
 
@@ -472,7 +485,7 @@ class EEGTransformer(nn.Module):
     def __init__(
         self,
         img_size=(64, 2560),
-        patch_size=(1, 64),
+        patch_size=64,
         patch_stride=None,
         embed_dim=768,
         embed_num=1,
@@ -528,6 +541,7 @@ class EEGTransformer(nn.Module):
 
     def prepare_chan_ids(self, channels):
         chan_ids = []
+        print(CHANNEL_DICT)
         for ch in channels:
             ch = ch.upper().strip('.')
             assert ch in CHANNEL_DICT, ch
@@ -565,7 +579,6 @@ class EEGTransformer(nn.Module):
         return {'chan_embed', 'summary_token'}
 
     def forward(self, x, chan_ids=None, mask_x=None, mask_t=None):
-        # print("forward called in EEGTransformer")
         # x.shape B, C, T
         # mask_x.shape mN, mC
         # mask_t.shape mN
@@ -573,8 +586,6 @@ class EEGTransformer(nn.Module):
         # -- patchify x
         x = self.patch_embed(x)
         B, N, C, D = x.shape
-
-        # print("The self.num_patches is:", self.num_patches)  # I got (23, 31)
 
         assert N == self.num_patches[1] and C == self.num_patches[
             0], f"{N}=={self.num_patches[1]} and {C}=={self.num_patches[0]}"
@@ -675,7 +686,7 @@ class Conv2dWithConstraint(nn.Conv2d):
 class EEGPTClassifier(nn.Module):
     def __init__(self,
                  num_classes,
-                 in_channels=66,
+                 in_channels=22,
                  img_size=[58, 2000],
                  patch_stride=64,
                  use_channels_names=None,
@@ -704,13 +715,18 @@ class EEGPTClassifier(nn.Module):
                 nn.BatchNorm2d(img_size[0]),
                 # nn.GELU(),
                 nn.Dropout(0.8),
+
+                # nn.Conv2d(img_size[0], img_size[0], kernel_size=(1,5), groups=img_size[0],padding= 'same'),
+                # # Conv2dWithConstraint(img_size[0], img_size[0], kernel_size=(1,15), groups=img_size[0]),
+                # nn.BatchNorm2d(img_size[0]),
+                # nn.GELU(),
+                # nn.Dropout(0.25),
             )
-        print("FINAL img_size passed to EEGTransformer:", img_size)
 
         target_encoder = EEGTransformer(
             img_size=img_size,
-            patch_size=(1, 64),
-            patch_stride=(1, 64),
+            patch_size=32*2,
+            patch_stride=patch_stride,
             embed_dim=512,
             embed_num=4,
             depth=8,
@@ -722,9 +738,6 @@ class EEGPTClassifier(nn.Module):
             init_std=0.02,
             qkv_bias=True,
             norm_layer=partial(nn.LayerNorm, eps=1e-6))
-
-        print("Loaded model expects num_patches =",
-              target_encoder.num_patches)  # expects (23, 31)
 
         reconstructor = EEGTransformerReconstructor(
             num_patches=target_encoder.num_patches,
@@ -745,32 +758,22 @@ class EEGPTClassifier(nn.Module):
         self.target_encoder = target_encoder
         self.reconstructor = reconstructor
         self.chans_id = target_encoder.prepare_chan_ids(use_channels_names)
-        # print("Resolved chan_ids:", self.chans_id)
-        # print("Resolved channel names:", [
-        #       ch_names[i] for i in self.chans_id[0]])
-        # print("Number of channels selected:", len(self.chans_id[0]))
 
         embed_dim = 512
         self.embed_dim = embed_dim
         self.norm = nn.Identity() if use_mean_pooling else norm_layer(embed_dim)
         self.fc_norm = norm_layer(embed_dim) if use_mean_pooling else None
 
-        # calculate feature dimension dynamically
-        try:
-            with torch.no_grad():
-                dummy_input = torch.zeros(1, in_channels, img_size[1])
-                dummy_output = self.forward_features(dummy_input)
-                B, T, G, E = dummy_output.shape
-                feature_dim = T * G * E
-        except Exception as e:
-            print(
-                "WARNING: Failed to infer feature_dim dynamically. Defaulting to 63488.")
-            feature_dim = 63488
-
-        # current head
+        # self.head_0 = LinearWithConstraint(4*self.embed_dim, 16) if num_classes > 0 else nn.Identity()
+        # self.act = nn.ReLU()
         self.head = nn.Sequential(
+            # nn.Linear(4*self.embed_dim*31,256),
+            # nn.ReLU(),
             nn.Dropout(0.8),
-            LinearWithConstraint(feature_dim, num_classes),
+            # LinearWithConstraint(4*self.embed_dim*40, num_classes)
+            LinearWithConstraint(32768, num_classes),
+            # nn.Dropout(0.25),
+            # nn.Linear(4*self.embed_dim*31, num_classes)
         )
 
         print("Created chan_conv with weights of shape:",
@@ -799,11 +802,35 @@ class EEGPTClassifier(nn.Module):
             chan_ids = self.chans_id
 
         if self.use_chan_conv:
-            x = x[:, chan_ids[0], :]
             x = x[:, :, None]
             x = self.chan_conv(x)[:, :, 0]
+            # x = rearrange(x, 'a (b c) d e -> a b (d e c)',c = 64 )
+            # print(x.shape)
+
+        # print(x.shape)
 
         x = self.target_encoder(x, chan_ids.to(x))
+
+        # print(x.shape)
+
+        # x = self.reconstructor(x)
+        # x = self.norm(x)
+
+        # if self.fc_norm is not None:
+        #     if return_all_tokens:
+        #         return self.fc_norm(x)
+        #     t = x[:, 1:, :]
+        #     if return_patch_tokens:
+        #         return self.fc_norm(t)
+        #     else:
+        #         return self.fc_norm(t.mean(1))
+        # else:
+        #     if return_all_tokens:
+        #         return x
+        #     elif return_patch_tokens:
+        #         return x[:, 1:]
+        #     else:
+        #         return x[:, 0]
         return x
 
     def forward(self, x, chan_ids=None, return_patch_tokens=False, return_all_tokens=False, **kwargs):
@@ -816,42 +843,38 @@ class EEGPTClassifier(nn.Module):
 
         x = self.forward_features(
             x, chan_ids=chan_ids, return_patch_tokens=return_patch_tokens, return_all_tokens=return_all_tokens, **kwargs)
-        # print("Shape before flatten:", x.shape)
+        # print(x.shape)
+
+        # x = x.flatten(2)
+        # x = x[:,:,0]
+        # x = self.act(self.head_0(x))
 
         x = x.flatten(1)
         x = self.head(x)
-        # print("Shape after flatten:", x.shape)
         return x
 
     def load_state_dict(self, state_dict, strict: bool = False):
-        for k in list(state_dict.keys()):
-            if 'head' in k:
-                print(f"Removing {k} from checkpoint")
-                del state_dict[k]
         return super().load_state_dict(state_dict, strict)
 
 
 if __name__ == "__main__":
+    use_channels_names = ['P1', 'PO1', 'F8', 'C2', 'CZ', 'PO2', 'FPZ', 'F3', 'CP4', 'CP3', 'PO3', 'C5', 'FC6', 'PO10', 'FP2', 'FC4', 'FT7', 'PO8', 'CP5', 'F2', 'P4', 'AFZ', 'P6', 'O2', 'P2', 'FC5', 'FC1', 'TP9', 'T7', 'C4',
+                          'P8', 'T8', 'OZ', 'AF4', 'CP1', 'FCZ', 'TP7', 'PO4', 'AF3', 'C3', 'O1', 'P7', 'F4', 'F1', 'FT8', 'CP2', 'CP6', 'PO7', 'P9', 'P5', 'P3', 'C6', 'PZ', 'FC2', 'PO9', 'POZ', 'C1', 'TP8', 'FZ', 'F7', 'P10', 'TP10', 'FC3']
 
-    # use_channels_names = [
-    #     'FP1', 'FP2',
-    #     'F7', 'F3', 'FZ', 'F4', 'F8',
-    #     'T7', 'C3', 'CZ', 'C4', 'T8',
-    #     'P7', 'P3', 'PZ', 'P4', 'P8',
-    #     'O1', 'O2']
+    # use_channels_names =   ['FP1', 'FPZ', 'FP2',
+    #         'F7', 'F5', 'F3', 'F1', 'FZ', 'F2', 'F4', 'F6', 'F8',
+    #      'FC5', 'FC3', 'FC1', 'FCZ', 'FC2', 'FC4', 'FC6',
+    #         'T7', 'C5', 'C3', 'C1', 'CZ', 'C2', 'C4', 'C6', 'T8',
+    #          'P7', 'P5', 'P3', 'P1', 'PZ', 'P2', 'P4', 'P6', 'P8',
+    #                   'PO3', 'POZ', 'PO4',
+    #                            'O1', 'OZ', 'O2', ]
 
-    use_channels_names = [
-        'FZ', 'F3', 'F4', 'F7', 'F8',
-        'C3', 'CZ', 'C4', 'T7', 'T8',
-        'P3', 'PZ', 'P4', 'P7', 'P8',
-        'O1', 'O2', 'FC1', 'FC2', 'CP3',
-        'CP4', 'PO3', 'PO4'
-    ]
-    ch_names = ['AF6', 'AF4', 'F2', 'FZ', 'FCZ', 'AF2', 'AFZ', 'FC1', 'AF1', 'F1', 'AF3', 'F3', 'AF5', 'FC3', 'C1', 'F7', 'FC5', 'C3', 'FT7', 'C5', 'T7', 'CP5', 'TP7', 'CP3', 'CP1', 'CZ', 'TP9', 'P7', 'P5', 'P3', 'P1', 'PZ',
-                'M1', 'P9', 'PO7', 'PO3', 'PO9', 'O1', 'PO1', 'POZ', 'O9', 'OZ', 'PO2', 'P2', 'CP2', 'C2', 'O10', 'O2', 'PO4', 'P4', 'PO8', 'P6', 'CP4', 'C4', 'P8', 'CP6', 'TP10', 'TP8', 'C6', 'FC2', 'T8', 'FC4', 'FT8', 'FC6', 'F4', 'F8']
-
+    ch_names = ['EEG FP1', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF',
+                'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
+    ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
+    # use_channels_names = ch_names
     model = EEGPTClassifier(4, in_channels=len(ch_names), img_size=[len(
-        use_channels_names), 2000], use_channels_names=use_channels_names, use_chan_conv=True)
+        use_channels_names), 1000], use_channels_names=use_channels_names, use_chan_conv=True)
 
     x = torch.zeros((2, len(ch_names), 1000))
     with torch.no_grad():
