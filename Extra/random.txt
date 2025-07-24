@@ -3,6 +3,7 @@
 
 
 sintx --ntasks=1 --account=compsci --partition=ada
+conda activate EEGPT_env
 
 module load python/miniconda3-py3.9
 source activate /home/chntzi001/.conda/envs/EEGPT_env
@@ -63,27 +64,23 @@ NotADirectoryError: [Errno 20] Not a directory: '/scratch/chntzi001/khula/12M/1_
 FileNotFoundError: [Errno 2] No such file or directory: '/scratch/chntzi001/khula/train/1_191_19175800_6_20230216_092411002_processed_0.pkl'
 
 
-
-1_191_23603310_6_20230405_113844002_processed.set: could not read bytes
-1_191_70439269_6_20230119_112718002_processed.set: could not read bytes
-1_191_47621245_24_20240201_125136002_processed.set: could not read bytes
-1_191_28039912_6_20230111_011331002_processed.set: could not read bytes
-1_191_47621245_3_20220816_113421002_processed.set: could not read bytes
-1_191_23150844_6_20230131_020106002_processed.set: could not read bytes
-1_191_37298891_6_20230308_092006002_processed.set: could not read bytes
-1_191_28097536_6_S_20221206_020230002_processed.set: could not read bytes
-
-1_191_23603310_6_20230405_113844002_processed.set: could not read bytes
-1_191_43759364_12_T_20230719_105955002_processed.set: get_data() got an unexpected keyword argument 'copy'
-1_191_70439269_6_20230119_112718002_processed.set: could not read bytes
-1_191_47621245_24_20240201_125136002_processed.set: could not read bytes
-1_191_59659447_6_20230330_013531002_processed.set: get_data() got an unexpected keyword argument 'copy'
-1_191_47621245_3_20220816_113421002_processed.set: could not read bytes
-1_191_28039912_6_20230111_011331002_processed.set: could not read bytes
-1_191_23150844_6_20230131_020106002_processed.set: could not read bytes
-1_191_37298891_6_20230308_092006002_processed.set: could not read bytes
-1_191_28097536_6_S_20221206_020230002_processed.set: could not read bytes
-1_191_58011621_12_20230823_013452002_processed.set: get_data() got an unexpected keyword argument 'copy'
-
-
- Namespace(batch_size=16, epochs=50, update_freq=1, save_ckpt_freq=5, robust_test=None, model='EEGPT', qkv_bias=False, rel_pos_bias=False, abs_pos_emb=True, layer_scale_init_value=0.1, input_size=200, drop=0.0, attn_drop_rate=0.0, drop_path=0.1, disable_eval_during_finetuning=False, model_ema=False, model_ema_decay=0.9999, model_ema_force_cpu=False, opt='adamw', opt_eps=1e-08, opt_betas=None, clip_grad=None, momentum=0.9, weight_decay=0.05, weight_decay_end=None, lr=0.0005, layer_decay=0.65, warmup_lr=1e-06, min_lr=1e-06, warmup_epochs=5, warmup_steps=-1, smoothing=0.1, reprob=0.25, remode='pixel', recount=1, resplit=False, finetune='/home/chntzi001/deepEEG/EEGPT/downstream/Checkpoints/eegpt_mcae_58chs_4s_large4E.ckpt', model_key='model|module|state_dict', model_prefix='', model_filter_name='gzp', init_scale=0.001, use_mean_pooling=True, disable_weight_decay_on_rel_pos_bias=False, nb_classes=0, output_dir='./checkpoints/finetune_khula_eegpt/', log_dir='./log/finetune_khula_eegpt', device='cuda', seed=0, resume='', auto_resume=True, save_ckpt=True, start_epoch=0, eval=False, dist_eval=True, num_workers=10, pin_mem=True, world_size=1, local_rank=-1, dist_on_itp=False, dist_url='env://', enable_deepspeed=False, dataset='KHULA')
+⚠️ Skipping non-epoched file: /scratch/chntzi001/khula/12M/1_191_43759364_12_T_20230719_105955002_processed.set
+⚠️ Skipping non-epoched file: /scratch/chntzi001/khula/12M/1_191_58011621_12_20230823_013452002_processed.set
+❌ Cannot read file (corrupt?): /scratch/chntzi001/khula/24M/1_191_47621245_24_20240201_125136002_processed.set
+  → Error: could not read bytes
+❌ Cannot read file (corrupt?): /scratch/chntzi001/khula/3M/1_191_47621245_3_20220816_113421002_processed.set
+  → Error: could not read bytes
+❌ Cannot read file (corrupt?): /scratch/chntzi001/khula/6M/1_191_23150844_6_20230131_020106002_processed.set
+  → Error: could not read bytes
+❌ Cannot read file (corrupt?): /scratch/chntzi001/khula/6M/1_191_23603310_6_20230405_113844002_processed.set
+  → Error: could not read bytes
+❌ Cannot read file (corrupt?): /scratch/chntzi001/khula/6M/1_191_28039912_6_20230111_011331002_processed.set
+  → Error: could not read bytes
+❌ Cannot read file (corrupt?): /scratch/chntzi001/khula/6M/1_191_28097536_6_S_20221206_020230002_processed.set
+  → Error: could not read bytes
+❌ Cannot read file (corrupt?): /scratch/chntzi001/khula/6M/1_191_37298891_6_20230308_092006002_processed.set
+  → Error: could not read bytes
+⚠️ Skipping non-epoched file: /scratch/chntzi001/khula/6M/1_191_59659447_6_20230330_013531002_processed.set
+❌ Cannot read file (corrupt?): /scratch/chntzi001/khula/6M/1_191_70439269_6_20230119_112718002_processed.set
+  → Error: could not read bytes
+                                

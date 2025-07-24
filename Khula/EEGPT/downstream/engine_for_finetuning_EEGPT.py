@@ -17,6 +17,9 @@ from einops import rearrange
 import csv
 import numpy as np
 import wandb
+import os
+
+from torchmetrics import ConfusionMatrix
 
 
 def train_class_batch(model, samples, target, criterion, ch_names):
@@ -160,7 +163,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
 
 @torch.no_grad()
-def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True):
+def evaluate(data_loader, model, device, args, header='Test:', ch_names=None, metrics=['acc'], is_binary=True):
     input_chans = None
     if ch_names is not None:
         input_chans = utils.get_input_chans(ch_names)
@@ -174,8 +177,16 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
 
     # switch to evaluation mode
     model.eval()
+    if not is_binary:
+        confmat = ConfusionMatrix(
+            task="multiclass", num_classes=output.shape[1]).to(device)
     pred = []
     true = []
+
+    output_csv = os.path.join(args.log_dir, "predictions.csv")
+    with open(output_csv, mode='w', newline='') as csv:
+        writer = csv.writer(output_csv)
+        writer.writerow(["Prediction", "True Label"])
 
     for step, batch in enumerate(metric_logger.log_every(data_loader, 10, header)):
         # print(f"type(batch): {type(batch)}")
@@ -206,6 +217,10 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
         pred.append(output)
         true.append(target)
 
+        if not is_binary:
+            preds_class = torch.argmax(output, dim=1)
+            confmat.update(preds_class.to(device), target.to(device).long())
+
         batch_size = EEG.shape[0]
         metric_logger.update(loss=loss.item())
         for key, value in results.items():
@@ -216,16 +231,28 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
     print('* loss {losses.global_avg:.3f}'
           .format(losses=metric_logger.loss))
 
+    output_csv = os.path.join(args.log_dir, "predictions.csv")
+    with open(output_csv, mode='a', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerows(zip(pred, true))
+
     pred = torch.cat(pred, dim=0).numpy()
     true = torch.cat(true, dim=0).numpy()
 
-    # with open("predictions.csv", "w", newline="") as f:
-    #     writer = csv.writer(f)
-    #     writer.writerow(["Prediction", "Target"])
-    #     for p, t in zip(pred, true):
-    #         # flatten in case output is multidimensional
-    #         writer.writerow([float(p), float(t)])
-
     ret = utils.get_metrics(pred, true, metrics, is_binary, 0.5)
     ret['loss'] = metric_logger.loss.global_avg
+
+    if not is_binary:
+        cm = confmat.compute().cpu().numpy()
+        # or your actual class labels
+        class_names = [str(i) for i in range(cm.shape[0])]
+        wandb.log({
+            "confusion_matrix": wandb.plot.confusion_matrix(
+                probs=None,
+                y_true=cm.sum(axis=1).tolist(),  # total true per class
+                preds=cm.tolist(),               # confusion matrix itself
+                class_names=class_names
+            )
+        })
+
     return ret

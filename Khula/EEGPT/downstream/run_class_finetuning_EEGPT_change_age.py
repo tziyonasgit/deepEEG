@@ -8,8 +8,8 @@ import torch.backends.cudnn as cudnn
 import json
 import os
 import wandb
+import csv
 
-#
 from pathlib import Path
 from collections import OrderedDict
 from timm.data.mixup import Mixup
@@ -27,7 +27,7 @@ from Modules.models.EEGPT_mcae_finetune_change import EEGPTClassifier
 def get_args():
     parser = argparse.ArgumentParser(
         'fine-tuning and evaluation script for EEG classification', add_help=False)
-    parser.add_argument('--batch_size', default=256, type=int)
+    parser.add_argument('--batch_size', default=128, type=int)
     parser.add_argument('--epochs', default=10, type=int)
     parser.add_argument('--update_freq', default=1, type=int)
     parser.add_argument('--save_ckpt_freq', default=50, type=int)
@@ -206,33 +206,6 @@ def get_models(args):
     #                   'PO7', "PO5", 'PO3', 'POZ', 'PO4', "PO6", 'PO8',
     #                            'O1', 'OZ', 'O2', ])}
 
-    # use_channels_names =   ['FP1', 'FPZ', 'FP2',
-    #         'F7', 'F5', 'F3', 'F1', 'FZ', 'F2', 'F4', 'F6', 'F8',
-    #         'T7', 'C5', 'C3', 'C1', 'CZ', 'C2', 'C4', 'C6', 'T8',
-    #                   'PO3', 'POZ', 'PO4',
-    #                   'O1', 'O2']
-
-    # use_channels_names = [
-    #     'FP1', 'FPZ', 'FP2',
-    #     'F7', 'F3', 'FZ', 'F4', 'F8',
-    #     'T7', 'C3', 'CZ', 'C4', 'T8',
-    #     'P7', 'P3', 'PZ', 'P4', 'P8',
-    #     'O1', 'O2']
-
-    # use_channels_names = [
-    #     'FZ', 'F3', 'F4', 'F7', 'F8',
-    #     'C3', 'CZ', 'C4', 'T7', 'T8',
-    #     'P3', 'PZ', 'P4', 'P7', 'P8',
-    #     'O1', 'O2',
-    #     'FC1', 'FC2',
-    #     'CP3', 'CP4',
-    #     'PO3', 'PO4'
-    # ]
-
-    # ch_names = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF',
-    #            'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
-    # ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
-
     # ordered subset of channel names the model expects and uses during training
     # # 58 channels here which matches checkpoint
     use_channels_names = ['FP1', 'FPZ', 'FP2',
@@ -245,19 +218,9 @@ def get_models(args):
                           'PO7', 'PO3', 'POZ',  'PO4', 'PO8',
                           'O1', 'OZ', 'O2', ]
 
-    # use_channels_names = [
-    #     'FZ', 'F3', 'F4', 'F7', 'F8',
-    #     'C3', 'CZ', 'C4', 'T7', 'T8',
-    #     'P3', 'PZ', 'P4', 'P7', 'P8',
-    #     'O1', 'O2',
-    #     'FC1', 'FC2',
-    #     'CP3', 'CP4',
-    #     'PO3', 'PO4'
-    # ]
-
-    # full set of EEG channel names available in your dataset
-    ch_names = ['P1', 'PO1', 'F8', 'C2', 'CZ', 'PO2', 'FPZ', 'F3', 'CP4', 'CP3', 'PO3', 'C5', 'FC6', 'PO10', 'FP2', 'FC4', 'FT7', 'PO8', 'CP5', 'F2', 'P4', 'AFZ', 'P6', 'O2', 'P2', 'FC5', 'FC1', 'TP9', 'T7', 'C4',
-                'P8', 'T8', 'OZ', 'AF4', 'CP1', 'FCZ', 'TP7', 'PO4', 'AF3', 'C3', 'O1', 'P7', 'F4', 'F1', 'FT8', 'CP2', 'CP6', 'PO7', 'P9', 'P5', 'P3', 'C6', 'PZ', 'FC2', 'PO9', 'POZ', 'C1', 'TP8', 'FZ', 'F7', 'P10', 'TP10', 'FC3']
+    # full set of EEG channel names available in your dataset -> 54
+    ch_names = ['FPZ', 'POZ', 'P7', 'OZ', 'P8', 'T8', 'AF4', 'CP2', 'PO4', 'CP4', 'FC6', 'C1', 'CP5', 'AF3', 'CP1', 'FZ', 'F1', 'CZ', 'PZ', 'F4', 'P3', 'F8', 'TP7', 'C6', 'O1', 'FC3',
+                'C2', 'TP8', 'FC5', 'FCZ', 'C4', 'F3', 'FP2', 'CP6', 'FC2', 'F7', 'P1', 'PO8', 'FT8', 'CP3', 'T7', 'PO7', 'PO3', 'P4', 'FC4', 'O2', 'C5', 'P6', 'C3', 'P5', 'FT7', 'FC1', 'P2', 'F2']
 
     # in_channels -> tells model how many channels to expect in the EEG data
     # use_channels_names -> tells model which channels to use during training
@@ -303,8 +266,8 @@ def get_dataset(args):
         train_dataset, test_dataset, val_dataset = utils.prepare_KHULA_dataset(
             "/scratch/chntzi001/khula/processed/")
 
-        ch_names = ['AF6', 'AF4', 'F2', 'FZ', 'FCZ', 'AF2', 'AFZ', 'FC1', 'AF1', 'F1', 'AF3', 'F3', 'AF5', 'FC3', 'C1', 'F7', 'FC5', 'C3', 'FT7', 'C5', 'T7', 'CP5', 'TP7', 'CP3', 'CP1', 'CZ', 'TP9', 'P7', 'P5', 'P3', 'P1', 'PZ',
-                    'M1', 'P9', 'PO7', 'PO3', 'PO9', 'O1', 'PO1', 'POZ', 'O9', 'OZ', 'PO2', 'P2', 'CP2', 'C2', 'O10', 'O2', 'PO4', 'P4', 'PO8', 'P6', 'CP4', 'C4', 'P8', 'CP6', 'TP10', 'TP8', 'C6', 'FC2', 'T8', 'FC4', 'FT8', 'FC6', 'F4', 'F8']
+        ch_names = ['FPZ', 'POZ', 'P7', 'OZ', 'P8', 'T8', 'AF4', 'CP2', 'PO4', 'CP4', 'FC6', 'C1', 'CP5', 'AF3', 'CP1', 'FZ', 'F1', 'CZ', 'PZ', 'F4', 'P3', 'F8', 'TP7', 'C6', 'O1', 'FC3',
+                    'C2', 'TP8', 'FC5', 'FCZ', 'C4', 'F3', 'FP2', 'CP6', 'FC2', 'F7', 'P1', 'PO8', 'FT8', 'CP3', 'T7', 'PO7', 'PO3', 'P4', 'FC4', 'O2', 'C5', 'P6', 'C3', 'P5', 'FT7', 'FC1', 'P2', 'F2']
 
         args.nb_classes = 4
         metrics = ["accuracy", "balanced_accuracy",
@@ -342,7 +305,7 @@ def write_args_to_file(args):
         f.write(f"momentum: {args.momentum}\n")
         f.write(f"weight_decay: {args.weight_decay}\n")
         f.write(f"weight_decay_end: {args.weight_decay_end}\n")
-        f.write(f"lr: {lr}\n")
+        f.write(f"lr: {args.lr}\n")
         f.write(f"layer_decay: {args.layer_decay}\n")
         f.write(f"warmup_lr: {args.warmup_lr}\n")
         f.write(f"min_lr: {args.min_lr}\n")
@@ -412,16 +375,26 @@ def main(args, ds_init):
         config=vars(args)
     )
     config = wandb.config
-    args.layer_decay = config.layer_decay
-    args.weight_decay = config.weight_decay
-    run_name = f"ld{config.layer_decay:.5f}_wd{config.weight_decay:.5f}_bs{args.batch_size}"
+    args.lr = config.lr
+    run_name = f"lr{config.lr:.5f}_bs{args.batch_size}"
     wandb.run.name = run_name
     args.output_dir = f"/scratch/chntzi001/khula/checkpoints/finetune_khula_eegpt/{run_name}"
-    args.log_dir = f"./log/finetune_khula_eegpt/{run_name}"
+    args.log_dir = f"/home/chntzi001/deepEEG/EEGPT/downstream/log/{run_name}"
     os.makedirs(args.output_dir, exist_ok=True)
     os.makedirs(args.log_dir, exist_ok=True)
     args.finetune = "/home/chntzi001/deepEEG/EEGPT/downstream/Checkpoints/eegpt_mcae_58chs_4s_large4E.ckpt"
     write_args_to_file(args)
+
+    hyperparameters = {
+        "model": "EEGPT-large",
+        "learning_rate": args.lr,
+        "batch_size": args.batch_size,
+    }
+
+    output_csv = os.path.join(args.log_dir, "predictions.csv")
+    with open(output_csv, mode='w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(["Prediction", "True Label"])
 
     if ds_init is not None:
         utils.create_ds_config(args)
@@ -547,6 +520,7 @@ def main(args, ds_init):
         print("Load ckpt from %s" % args.finetune)
 
         checkpoint_model = checkpoint['state_dict']
+        # print(checkpoint_model)
         utils.load_state_dict(model, checkpoint_model,
                               prefix=args.model_prefix)
 
@@ -571,7 +545,7 @@ def main(args, ds_init):
 
     total_batch_size = args.batch_size * args.update_freq * utils.get_world_size()
     num_training_steps_per_epoch = len(dataset_train) // total_batch_size
-    print("LR = %.8f" % lr)
+    print("LR = %.8f" % args.lr)
     print("Batch size = %d" % total_batch_size)
     print("Update frequent = %d" % args.update_freq)
     print("Number of training examples = %d" % len(dataset_train))
@@ -657,7 +631,7 @@ def main(args, ds_init):
         balanced_accuracy = []
         accuracy = []
         for data_loader in data_loader_test:
-            test_stats = evaluate(data_loader, model, device, header='Test:',
+            test_stats = evaluate(data_loader, model, device, args, header='Test:',
                                   ch_names=ch_names, metrics=metrics, is_binary=(args.nb_classes == 1))
             accuracy.append(test_stats['accuracy'])
             balanced_accuracy.append(test_stats['balanced_accuracy'])
@@ -694,12 +668,16 @@ def main(args, ds_init):
         if data_loader_val is not None:
             print("============== Evaluating on validation and test set ==============")
             print("Here batch size is = %d" % int(1.5 * args.batch_size))
-            val_stats = evaluate(data_loader_val, model, device, header='Val:',
+            val_stats = evaluate(data_loader_val, model, device, args, header='Val:',
                                  ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1)
+            wandb.log({f"val/{k}": v for k, v in val_stats.items()}
+                      | {"epoch": epoch})
             print(
                 f"Accuracy of the network on the {len(dataset_val)} val EEG: {val_stats['accuracy']:.2f}%")
-            test_stats = evaluate(data_loader_test, model, device, header='Test:',
+            test_stats = evaluate(data_loader_test, model, device, args, header='Test:',
                                   ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1)
+            wandb.log({f"test/{k}": v for k, v in test_stats.items()}
+                      | {"epoch": epoch})
             print(
                 f"Accuracy of the network on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%")
 
@@ -710,6 +688,7 @@ def main(args, ds_init):
                         args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
                         loss_scaler=loss_scaler, epochNum=epoch, epoch="best", model_ema=model_ema)
                 max_accuracy_test = test_stats["accuracy"]
+                bestEpoch = epoch
 
             print(
                 f'Max accuracy val: {max_accuracy:.2f}%, max accuracy test: {max_accuracy_test:.2f}%')
@@ -734,6 +713,12 @@ def main(args, ds_init):
                                           head="val", step=epoch)
                     elif key == 'loss':
                         log_writer.update(loss=value, head="val", step=epoch)
+                    elif key == 'class_acc':
+                        try:
+                            log_writer.update(
+                                class_acc=value, head="test", step=epoch)
+                        except Exception as e:
+                            print(f"⚠️val error with logging class_acc")
                 for key, value in test_stats.items():
                     if key == 'accuracy':
                         log_writer.update(
@@ -755,6 +740,12 @@ def main(args, ds_init):
                                           head="test", step=epoch)
                     elif key == 'loss':
                         log_writer.update(loss=value, head="test", step=epoch)
+                    elif key == 'class_acc':
+                        try:
+                            log_writer.update(
+                                class_acc=value, head="test", step=epoch)
+                        except Exception as e:
+                            print(f"⚠️test error with logging class_acc")
 
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                          **{f'val_{k}': v for k, v in val_stats.items()},
@@ -770,6 +761,11 @@ def main(args, ds_init):
             if log_writer is not None:
                 log_writer.flush()
             with open(os.path.join(args.output_dir, "log.txt"), mode="a", encoding="utf-8") as f:
+                f.write(json.dumps(hyperparameters) + "\n")
+                f.write("-------------------------------------- \n")
+                f.write(
+                    f'At epoch: {bestEpoch} -> Max accuracy val: {max_accuracy:.2f}%, max accuracy test: {max_accuracy_test:.2f}% \n')
+                f.write("-------------------------------------- \n")
                 f.write(json.dumps(log_stats) + "\n")
 
     total_time = time.time() - start_time
