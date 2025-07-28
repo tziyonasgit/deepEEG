@@ -17,6 +17,12 @@ from torcheeg.datasets import CSVFolderDataset
 from torchaudio.transforms import Resample
 
 import glob
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    message="At least one epoch has multiple events. Only the latency of the first event will be retained.",
+    category=RuntimeWarning
+)
 
 
 # # current channel order for renamed khula dataset
@@ -49,6 +55,8 @@ PHYSIONETMI_CHANNEL_LIST = [x.strip('.').upper()
 
 def temporal_interpolation(x, desired_sequence_length, mode='nearest'):
     # squeeze and unsqueeze because these are done before batching
+    print("CHECKING THAT I GOT HERE")
+    print("the shape is: ", x.shape)
     x = x - x.mean(-2)
     if len(x.shape) == 2:
         return torch.nn.functional.interpolate(x.unsqueeze(0), desired_sequence_length, mode=mode).squeeze(0)
@@ -60,99 +68,44 @@ def temporal_interpolation(x, desired_sequence_length, mode='nearest'):
             "TemporalInterpolation only support sequence of single dim channels with optional batch")
 
 
-# --------------- merge to Fold Dataset
-
-def get_TSU_dataset():
-    dataset = TSUBenckmarkDataset(
-        root_path="./TSUBenchmark/",
-        io_path=data_root_path+'io/tsu_benchmark',
-        online_transform=transforms.Compose([
-            transforms.PickElectrode(transforms.PickElectrode.to_index_list(
-                use_channels_names, TSUBENCHMARK_CHANNEL_LIST)),
-            transforms.ToTensor(),
-            transforms.Lambda(lambda x: temporal_interpolation(
-                x, 256*4) / 1000),  # 1000uV
-            transforms.To2d(),
-        ]),
-        label_transform=transforms.Select('trial_id'))
-    return dataset
-
-
-def get_M3CV_dataset():
-    dataset = M3CVDataset(
-        root_path="./aistudio/",
-        io_path=data_root_path+'io/m3cv',
-        online_transform=transforms.Compose([
-            transforms.PickElectrode(transforms.PickElectrode.to_index_list(
-                use_channels_names, M3CV_CHANNEL_LIST)),
-            transforms.ToTensor(),
-            transforms.Lambda(lambda x: temporal_interpolation(
-                x, 256*4) / 1000),  # 1000uV
-            transforms.To2d(),
-        ]),
-        label_transform=transforms.Compose([
-            transforms.Select('subject_id'),
-            transforms.StringToInt()
-        ]))
-    return dataset
-
-
-def get_SEED_dataset():
-    dataset = SEEDDataset(
-        root_path="/scratch/chntzi001/khula/",
-        io_path=data_root_path+'io/seed',
-        online_transform=transforms.Compose([
-            transforms.PickElectrode(transforms.PickElectrode.to_index_list(
-                use_channels_names, SEED_CHANNEL_LIST)),
-            transforms.ToTensor(),
-            #   transforms.RandomWindowSlice(window_size=250*4, p=1.0),
-            transforms.Lambda(lambda x: temporal_interpolation(
-                x, 256*10)/1000),  # 1000uV
-            transforms.To2d(),
-        ]),
-        label_transform=transforms.Compose([
-            transforms.Select('emotion'),
-            transforms.Lambda(lambda x: x + 1)
-        ]))
-    return dataset
-
-
 def get_KHULA_dataset():
 
-    if not os.path.exists("/scratch/chntzi001/khula/io_root"):
-        def default_read_fn(file_path, label_id=None, **kwargs):
-            try:
-                raw = mne.io.read_epochs_eeglab(file_path, verbose=False)
-                return raw
-            except ValueError as e:
-                if "trials less than 2" in str(e):
-                    print(f"⚠️ Skipping non-epoched file: {file_path}")
-                    return None
-                else:
-                    raise  # Raise other unexpected errors
+    # if not os.path.exists("/scratch/chntzi001/khula/io_root"):
+    #     def default_read_fn(file_path, label_id=None, **kwargs):
+    #         try:
+    #             raw = mne.io.read_epochs_eeglab(file_path, verbose=False)
+    #             return raw
+    #         except ValueError as e:
+    #             if "trials less than 2" in str(e):
+    #                 print(f"⚠️ Skipping non-epoched file: {file_path}")
+    #                 return None
+    #             else:
+    #                 raise  # Raise other unexpected errors
 
-        dataset = CSVFolderDataset(csv_path="/home/chntzi001/deepEEG/EEGPT/pretrain/khula_file_list.csv",
-                                   read_fn=default_read_fn,
-                                   io_path="/scratch/chntzi001/khula/io_root",
-                                   online_transform=transforms.Compose([
-                                       transforms.ToTensor(),
-                                       transforms.To2d()
-                                   ]), label_transform=transforms.Select('label'),
-                                   num_worker=4)
-    else:
-        dataset = CSVFolderDataset(
-            io_path="/scratch/chntzi001/khula/io_root",
-            online_transform=transforms.Compose([
+    #     print("got here!!!!")
+
+    #     dataset = CSVFolderDataset(csv_path="/home/chntzi001/deepEEG/EEGPT/pretrain/khula_file_list.csv",
+    #                                read_fn=default_read_fn,
+    #                                io_path="/scratch/chntzi001/khula/io_root",
+    #                                online_transform=transforms.Compose([
+    #                                    transforms.ToTensor(),
+    #                                    transforms.To2d()
+    #                                ]), label_transform=transforms.Select('label'),
+    #                                num_worker=4)
+    # else:
+    dataset = CSVFolderDataset(
+        io_path="/scratch/chntzi001/khula/io_root",
+        online_transform=transforms.Compose([
                 transforms.PickElectrode(transforms.PickElectrode.to_index_list(
                     use_channels_names, KHULA_CHANNEL_LIST)),
                 transforms.ToTensor(),
                 transforms.Lambda(lambda x: temporal_interpolation(
-                    x, 1000*2) / 1000),  # V-> 1000uV
+                    x, 1980) / 1000),  # V-> 1000uV and i changed it to resample to 1980 timepoints so it can be divided by 99
                 transforms.To2d()
-            ]),
-            label_transform=transforms.Select('label'),
-            num_worker=40
-        )
+        ]),
+        label_transform=transforms.Select('label'),
+        num_worker=40
+    )
     return dataset
 
 
@@ -174,12 +127,13 @@ if __name__ == "__main__":
         label = int(y)
         print("counter is: ", {i})
         if random.random() < 0.1:
-            dst += f"ValidFolder/"
+            dst += f"ValidFolder/0/"
         else:
-            dst += f"TrainFolder/"
+            dst += f"TrainFolder/0/"
         os.makedirs(dst, exist_ok=True)
         data = x.squeeze_(0)
         # data = data.clone().detach().cpu()
+        assert data.shape[1] == 1980
         print(i, data.shape, len(data.shape) ==
               2 and data.shape[0] == 99 and data.shape[1] >= 1000)
         assert len(

@@ -32,7 +32,7 @@ def seed_torch(seed=1029):
 seed_torch(7)
 
 
-from utils import *
+from unified.utils import *
 from utils_eval import get_metrics
 
 use_channels = None
@@ -187,7 +187,7 @@ class LitBENDR(pl.LightningModule):
     
 # load configs
 # -- LOSO 
-from utils import *
+from unified.utils import *
 import math
 data_path = "../datasets/downstream/Data/BCIC_2b_0_38HZ/"
 

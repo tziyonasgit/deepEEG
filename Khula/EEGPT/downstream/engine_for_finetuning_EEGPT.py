@@ -7,19 +7,18 @@
 # https://github.com/facebookresearch/deit/
 # https://github.com/facebookresearch/dino
 # --------------------------------------------------------
+from torchmetrics import ConfusionMatrix
 import math
 import sys
 from typing import Iterable, Optional
 import torch
 from timm.utils import ModelEma
-import utils
+import unified.utils as utils
 from einops import rearrange
 import csv
 import numpy as np
 import wandb
 import os
-
-from torchmetrics import ConfusionMatrix
 
 
 def train_class_batch(model, samples, target, criterion, ch_names):
@@ -177,24 +176,21 @@ def evaluate(data_loader, model, device, args, header='Test:', ch_names=None, me
 
     # switch to evaluation mode
     model.eval()
-    if not is_binary:
-        confmat = ConfusionMatrix(
-            task="multiclass", num_classes=output.shape[1]).to(device)
+
     pred = []
     true = []
 
     output_csv = os.path.join(args.log_dir, "predictions.csv")
-    with open(output_csv, mode='w', newline='') as csv:
-        writer = csv.writer(output_csv)
+    with open(output_csv, mode='w', newline='') as f:
+        writer = csv.writer(f)
         writer.writerow(["Prediction", "True Label"])
 
     for step, batch in enumerate(metric_logger.log_every(data_loader, 10, header)):
-        # print(f"type(batch): {type(batch)}")
-        # print(f"batch: {batch}")
         EEG = batch[0]  # batch[0] is the EEG data - X
         target = batch[-1]  # batch[-1] is the target/label - y
         EEG = EEG.float().to(device, non_blocking=True) / 100
         EEG = rearrange(EEG, 'B N (A T) -> B N A T', T=64)
+        print("EEG shape is: ", EEG.shape)
         target = target.to(device, non_blocking=True)
         if is_binary:
             target = target.float().unsqueeze(-1)
@@ -204,9 +200,17 @@ def evaluate(data_loader, model, device, args, header='Test:', ch_names=None, me
             output = model(EEG)
             loss = criterion(output, target)
 
+        print("output shape: ", output.shape)
+
+        if not is_binary:
+            confmat = ConfusionMatrix(
+                task="multiclass", num_classes=output.shape[1]).to(device)
+        else:
+            confmat = ConfusionMatrix(
+                task="binary", num_classes=output.shape[1]).to(device)
+
         if is_binary:
             output = torch.sigmoid(output).cpu()
-
         else:
             output = output.cpu()
             output = torch.nn.functional.softmax(output, dim=1)
@@ -218,8 +222,16 @@ def evaluate(data_loader, model, device, args, header='Test:', ch_names=None, me
         true.append(target)
 
         if not is_binary:
-            preds_class = torch.argmax(output, dim=1)
-            confmat.update(preds_class.to(device), target.to(device).long())
+            preds_list = torch.argmax(output, dim=1)
+            confmat.update(preds_list.to(device), target.to(device).long())
+            preds_list = preds_list.tolist()
+            target_list = target.tolist()
+            print("preds_class: ", preds_list)
+            print("target_class: ", target_list)
+
+        with open(output_csv, mode='a', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerows(zip(preds_list, target_list))
 
         batch_size = EEG.shape[0]
         metric_logger.update(loss=loss.item())
@@ -231,28 +243,14 @@ def evaluate(data_loader, model, device, args, header='Test:', ch_names=None, me
     print('* loss {losses.global_avg:.3f}'
           .format(losses=metric_logger.loss))
 
-    output_csv = os.path.join(args.log_dir, "predictions.csv")
-    with open(output_csv, mode='a', newline='') as file:
-        writer = csv.writer(file)
-        writer.writerows(zip(pred, true))
-
+    print("pred currently: ", pred)
+    predtensor = torch.cat(pred, dim=0)
+    print("predtensor: ", predtensor)
+    predtensor = torch.argmax(predtensor, dim=1)
     pred = torch.cat(pred, dim=0).numpy()
     true = torch.cat(true, dim=0).numpy()
 
     ret = utils.get_metrics(pred, true, metrics, is_binary, 0.5)
     ret['loss'] = metric_logger.loss.global_avg
-
-    if not is_binary:
-        cm = confmat.compute().cpu().numpy()
-        # or your actual class labels
-        class_names = [str(i) for i in range(cm.shape[0])]
-        wandb.log({
-            "confusion_matrix": wandb.plot.confusion_matrix(
-                probs=None,
-                y_true=cm.sum(axis=1).tolist(),  # total true per class
-                preds=cm.tolist(),               # confusion matrix itself
-                class_names=class_names
-            )
-        })
 
     return ret

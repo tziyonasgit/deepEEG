@@ -24,7 +24,7 @@ def seed_torch(seed=1029):
 	torch.backends.cudnn.deterministic = True
 seed_torch(7)
 
-from utils import *
+from unified.utils import *
 from Modules.Network.utils import Conv1dWithConstraint, LinearWithConstraint
 from Modules.Network.utils import Conv1dWithConstraint
 from Modules.BIOT.biot import (

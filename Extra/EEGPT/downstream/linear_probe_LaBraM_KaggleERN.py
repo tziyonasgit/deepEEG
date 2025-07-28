@@ -30,7 +30,7 @@ import Modules.LaBraM.modeling_finetune
 import timm.models
 from timm.models import create_model
 import torch
-from utils import temporal_interpolation
+from unified.utils import temporal_interpolation
 from sklearn import metrics
 from utils_eval import get_metrics
 
@@ -221,7 +221,7 @@ class LitEEGPTCausal(pl.LightningModule):
         
 # load configs
 # -- LOSO 
-from utils import *
+from unified.utils import *
 import math
 seed_torch(9)
 path = "../datasets/downstream"

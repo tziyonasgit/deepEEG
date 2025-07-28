@@ -2,7 +2,7 @@ from Modules.models.EEGPT_mcae_finetune_change import EEGPTClassifier
 
 import torch
 
-import utils
+import unified.utils as utils
 
 
 def get_models(args):

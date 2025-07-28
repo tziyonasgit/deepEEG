@@ -26,7 +26,7 @@ seed_torch(7)
 
 from Modules.models.EEGPT_mcae import EEGTransformer
 from Modules.Network.utils import Conv1dWithConstraint, LinearWithConstraint
-from utils import temporal_interpolation
+from unified.utils import temporal_interpolation
 from sklearn import metrics
 from utils_eval import get_metrics
 
@@ -247,7 +247,7 @@ class LitEEGPTCausal(pl.LightningModule):
         
 # load configs
 # -- LOSO 
-from utils import *
+from unified.utils import *
 import math
 seed_torch(9)
 path = "../datasets/downstream"

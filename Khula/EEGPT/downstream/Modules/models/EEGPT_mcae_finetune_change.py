@@ -6,6 +6,7 @@
 # LICENSE file in the root directory of this source tree.
 #
 
+import os
 import math
 from functools import partial
 import numpy as np
@@ -465,7 +466,7 @@ class EEGTransformer(nn.Module):
 
     def __init__(
         self,
-        img_size=(64, 2560),
+        img_size=(54, 1024),
         patch_size=64,
         patch_stride=None,
         embed_dim=768,
@@ -484,6 +485,7 @@ class EEGTransformer(nn.Module):
         init_std=0.02,
         interpolate_factor=2.,
         return_attention_layer=-1,
+        logdir=None,
         **kwargs
     ):
         super().__init__()
@@ -520,9 +522,21 @@ class EEGTransformer(nn.Module):
         self.apply(self._init_weights)
         self.fix_init_weight()
 
+        print("logdir: ", logdir)
+        if logdir is not None:
+            os.makedirs(logdir, exist_ok=True)
+            filename = os.path.join(logdir, "EEGTransformer_encoder.txt")
+            with open(filename, 'w') as f:
+                f.write(f"img_size: {img_size}\n")
+                f.write(f"embed_dim: {embed_dim}\n")
+                f.write(f"embed_num: {embed_num}\n")
+                f.write(f"patch_embed: {self.patch_embed}\n")
+                f.write(f"chan_embed: {self.chan_embed}\n")
+                f.write(f"summary_token: {self.summary_token}\n")
+                f.write(f"num_patches: {self.num_patches}\n")
+
     def prepare_chan_ids(self, channels):
         chan_ids = []
-        print(CHANNEL_DICT)
         for ch in channels:
             ch = ch.upper().strip('.')
             assert ch in CHANNEL_DICT, ch
@@ -573,10 +587,14 @@ class EEGTransformer(nn.Module):
 
         if chan_ids is None:
             chan_ids = torch.arange(0, C)
+            # print("chan_ids = torch.arange(0, C): ", chan_ids)
         chan_ids = chan_ids.to(x)
+        # print("chan_ids.to(x): ", chan_ids)
 
         # -- add channels positional embedding to x
         # (1,C) -> (1,1,C,D)
+        # print("self.chan_embed: ", self.chan_embed)
+        # print("chan_ids: ", chan_ids)
         x = x + self.chan_embed(chan_ids.long()).unsqueeze(0)
 
         if mask_x is not None:
@@ -675,7 +693,8 @@ class EEGPTClassifier(nn.Module):
                  norm_layer=nn.LayerNorm,
                  use_chan_conv=False,
                  max_norm_chan_conv=1,
-                 **kwargs):
+                 logdir=None,
+                 ** kwargs):
 
         super().__init__()
 
@@ -684,25 +703,16 @@ class EEGPTClassifier(nn.Module):
 
             self.chan_conv = torch.nn.Sequential(
                 Conv2dWithConstraint(in_channels, img_size[0], 1),
-                # nn.Conv2d(in_channels, img_size[0], 1),
                 nn.BatchNorm2d(img_size[0]),
                 nn.GELU(),
-                # nn.Dropout(0.25),
-
-                # nn.Conv2d(img_size[0], img_size[0]*64, kernel_size=(1,50), stride= (1,50), groups=img_size[0]),
                 nn.Conv2d(img_size[0], img_size[0], kernel_size=(
                     1, 55), groups=img_size[0], padding='same'),
-                # Conv2dWithConstraint(img_size[0], img_size[0], kernel_size=(1,15), groups=img_size[0]),
                 nn.BatchNorm2d(img_size[0]),
-                # nn.GELU(),
                 nn.Dropout(0.8),
-
-                # nn.Conv2d(img_size[0], img_size[0], kernel_size=(1,5), groups=img_size[0],padding= 'same'),
-                # # Conv2dWithConstraint(img_size[0], img_size[0], kernel_size=(1,15), groups=img_size[0]),
-                # nn.BatchNorm2d(img_size[0]),
-                # nn.GELU(),
                 # nn.Dropout(0.25),
             )
+
+        print("img_size here: ", img_size)
 
         target_encoder = EEGTransformer(
             img_size=img_size,
@@ -718,7 +728,8 @@ class EEGPTClassifier(nn.Module):
             drop_path_rate=0.0,
             init_std=0.02,
             qkv_bias=True,
-            norm_layer=partial(nn.LayerNorm, eps=1e-6))
+            norm_layer=partial(nn.LayerNorm, eps=1e-6),
+            logdir=logdir)
 
         reconstructor = EEGTransformerReconstructor(
             num_patches=target_encoder.num_patches,
@@ -785,33 +796,8 @@ class EEGPTClassifier(nn.Module):
         if self.use_chan_conv:
             x = x[:, :, None]
             x = self.chan_conv(x)[:, :, 0]
-            # x = rearrange(x, 'a (b c) d e -> a b (d e c)',c = 64 )
-            # print(x.shape)
-
-        # print(x.shape)
 
         x = self.target_encoder(x, chan_ids.to(x))
-
-        # print(x.shape)
-
-        # x = self.reconstructor(x)
-        # x = self.norm(x)
-
-        # if self.fc_norm is not None:
-        #     if return_all_tokens:
-        #         return self.fc_norm(x)
-        #     t = x[:, 1:, :]
-        #     if return_patch_tokens:
-        #         return self.fc_norm(t)
-        #     else:
-        #         return self.fc_norm(t.mean(1))
-        # else:
-        #     if return_all_tokens:
-        #         return x
-        #     elif return_patch_tokens:
-        #         return x[:, 1:]
-        #     else:
-        #         return x[:, 0]
         return x
 
     def forward(self, x, chan_ids=None, return_patch_tokens=False, return_all_tokens=False, **kwargs):
@@ -839,21 +825,12 @@ class EEGPTClassifier(nn.Module):
 
 
 if __name__ == "__main__":
-    use_channels_names = ['P1', 'PO1', 'F8', 'C2', 'CZ', 'PO2', 'FPZ', 'F3', 'CP4', 'CP3', 'PO3', 'C5', 'FC6', 'PO10', 'FP2', 'FC4', 'FT7', 'PO8', 'CP5', 'F2', 'P4', 'AFZ', 'P6', 'O2', 'P2', 'FC5', 'FC1', 'TP9', 'T7', 'C4',
-                          'P8', 'T8', 'OZ', 'AF4', 'CP1', 'FCZ', 'TP7', 'PO4', 'AF3', 'C3', 'O1', 'P7', 'F4', 'F1', 'FT8', 'CP2', 'CP6', 'PO7', 'P9', 'P5', 'P3', 'C6', 'PZ', 'FC2', 'PO9', 'POZ', 'C1', 'TP8', 'FZ', 'F7', 'P10', 'TP10', 'FC3']
+    use_channels_names = ['FPZ', 'POZ', 'P7', 'OZ', 'P8', 'T8', 'AF4', 'CP2', 'PO4', 'CP4', 'FC6', 'C1', 'CP5', 'AF3', 'CP1', 'FZ', 'F1', 'CZ', 'PZ', 'F4', 'P3', 'F8', 'TP7', 'C6', 'O1', 'FC3',
+                          'C2', 'TP8', 'FC5', 'FCZ', 'C4', 'F3', 'FP2', 'CP6', 'FC2', 'F7', 'P1', 'PO8', 'FT8', 'CP3', 'T7', 'PO7', 'PO3', 'P4', 'FC4', 'O2', 'C5', 'P6', 'C3', 'P5', 'FT7', 'FC1', 'P2', 'F2']
 
-    # use_channels_names =   ['FP1', 'FPZ', 'FP2',
-    #         'F7', 'F5', 'F3', 'F1', 'FZ', 'F2', 'F4', 'F6', 'F8',
-    #      'FC5', 'FC3', 'FC1', 'FCZ', 'FC2', 'FC4', 'FC6',
-    #         'T7', 'C5', 'C3', 'C1', 'CZ', 'C2', 'C4', 'C6', 'T8',
-    #          'P7', 'P5', 'P3', 'P1', 'PZ', 'P2', 'P4', 'P6', 'P8',
-    #                   'PO3', 'POZ', 'PO4',
-    #                            'O1', 'OZ', 'O2', ]
+    ch_names = ['FPZ', 'POZ', 'P7', 'OZ', 'P8', 'T8', 'AF4', 'CP2', 'PO4', 'CP4', 'FC6', 'C1', 'CP5', 'AF3', 'CP1', 'FZ', 'F1', 'CZ', 'PZ', 'F4', 'P3', 'F8', 'TP7', 'C6', 'O1', 'FC3',
+                'C2', 'TP8', 'FC5', 'FCZ', 'C4', 'F3', 'FP2', 'CP6', 'FC2', 'F7', 'P1', 'PO8', 'FT8', 'CP3', 'T7', 'PO7', 'PO3', 'P4', 'FC4', 'O2', 'C5', 'P6', 'C3', 'P5', 'FT7', 'FC1', 'P2', 'F2']
 
-    ch_names = ['EEG FP1', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF',
-                'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
-    ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
-    # use_channels_names = ch_names
     model = EEGPTClassifier(4, in_channels=len(ch_names), img_size=[len(
         use_channels_names), 1000], use_channels_names=use_channels_names, use_chan_conv=True)
 

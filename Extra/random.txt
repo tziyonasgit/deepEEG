@@ -25,7 +25,7 @@ squeue -u $USER
 accessing tensorboard log:
 
 conda activate EEGPT_env
-tensorboard --logdir=~/deepEEG/log/finetune_khula_eegpt --port=6006
+tensorboard --logdir=/home/chntzi001/deepEEG/EEGPT/downstream/log/multiclass/lr0.00003_bs256_e15 --port=6006
 
 in local terminal: ssh -L 6006:localhost:6006 chntzi001@srvrochpc001
 

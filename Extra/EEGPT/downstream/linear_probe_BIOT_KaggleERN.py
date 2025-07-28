@@ -29,7 +29,7 @@ from Modules.BIOT.biot import (
     BIOTClassifier,
 )
 import torch
-from utils import temporal_interpolation
+from unified.utils import temporal_interpolation
 from sklearn import metrics
 from utils_eval import get_metrics
 
@@ -220,7 +220,7 @@ class LitEEGPTCausal(pl.LightningModule):
 # -- LOSO 
 
 # load configs
-from utils import *
+from unified.utils import *
 import math
 seed_torch(9)
 pretrain_model_choice=0

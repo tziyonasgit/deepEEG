@@ -17,8 +17,8 @@ from timm.utils import ModelEma
 from optim_factory import create_optimizer, get_parameter_groups, LayerDecayValueAssigner
 
 from engine_for_finetuning_EEGPT import train_one_epoch, evaluate
-from utils import NativeScalerWithGradNormCount as NativeScaler
-import utils
+from unified.utils import NativeScalerWithGradNormCount as NativeScaler
+import unified.utils as utils
 from EEGPT.downstream.Modules.models.EEGPT_mcae_finetune_change_khula import EEGPTClassifier
 
 

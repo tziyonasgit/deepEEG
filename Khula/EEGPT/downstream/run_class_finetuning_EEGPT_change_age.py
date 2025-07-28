@@ -19,8 +19,8 @@ from timm.utils import ModelEma
 from optim_factory import create_optimizer, get_parameter_groups, LayerDecayValueAssigner
 
 from engine_for_finetuning_EEGPT import train_one_epoch, evaluate
-from utils import NativeScalerWithGradNormCount as NativeScaler
-import utils
+from unified.utils import NativeScalerWithGradNormCount as NativeScaler
+import unified.utils as utils
 from Modules.models.EEGPT_mcae_finetune_change import EEGPTClassifier
 
 
@@ -28,11 +28,13 @@ def get_args():
     parser = argparse.ArgumentParser(
         'fine-tuning and evaluation script for EEG classification', add_help=False)
     parser.add_argument('--batch_size', default=128, type=int)
-    parser.add_argument('--epochs', default=10, type=int)
+    parser.add_argument('--epochs', default=20, type=int)
     parser.add_argument('--update_freq', default=1, type=int)
     parser.add_argument('--save_ckpt_freq', default=50, type=int)
-    parser.add_argument('--output_dir', default="./outputs", type=str)
     parser.add_argument('--log_dir', default="./log", type=str)
+    parser.add_argument(
+        '--output_dir', default="/scratch/chntzi001/khula/checkpoints/finetune_khula_eegpt", type=str)
+    parser.add_argument('--sweep', default=False)
 
     # robust evaluation
     parser.add_argument('--robust_test', default=None, type=str,
@@ -141,10 +143,7 @@ def get_args():
     parser.add_argument('--seed', default=0, type=int)
     parser.add_argument('--resume', default='',
                         help='resume from checkpoint')
-    parser.add_argument('--auto_resume', action='store_true')
-    parser.add_argument('--no_auto_resume',
-                        action='store_true', dest='auto_resume')
-    parser.set_defaults(auto_resume=True)
+    parser.add_argument('--auto_resume', action='store_true', default=False)
 
     parser.add_argument('--save_ckpt', action='store_true')
     parser.add_argument(
@@ -206,17 +205,8 @@ def get_models(args):
     #                   'PO7', "PO5", 'PO3', 'POZ', 'PO4', "PO6", 'PO8',
     #                            'O1', 'OZ', 'O2', ])}
 
-    # ordered subset of channel names the model expects and uses during training
-    # # 58 channels here which matches checkpoint
-    use_channels_names = ['FP1', 'FPZ', 'FP2',
-                          'AF3', 'AF4',
-                          'F7', 'F5', 'F3', 'F1', 'FZ', 'F2', 'F4', 'F6', 'F8',
-                          'FT7', 'FC5', 'FC3', 'FC1', 'FCZ', 'FC2', 'FC4', 'FC6', 'FT8',
-                          'T7', 'C5', 'C3', 'C1', 'CZ', 'C2', 'C4', 'C6', 'T8',
-                          'TP7', 'CP5', 'CP3', 'CP1', 'CPZ', 'CP2', 'CP4', 'CP6', 'TP8',
-                          'P7', 'P5', 'P3', 'P1', 'PZ', 'P2', 'P4', 'P6', 'P8',
-                          'PO7', 'PO3', 'POZ',  'PO4', 'PO8',
-                          'O1', 'OZ', 'O2', ]
+    use_channels_names = ['FPZ', 'POZ', 'P7', 'OZ', 'P8', 'T8', 'AF4', 'CP2', 'PO4', 'CP4', 'FC6', 'C1', 'CP5', 'AF3', 'CP1', 'FZ', 'F1', 'CZ', 'PZ', 'F4', 'P3', 'F8', 'TP7', 'C6', 'O1', 'FC3',
+                          'C2', 'TP8', 'FC5', 'FCZ', 'C4', 'F3', 'FP2', 'CP6', 'FC2', 'F7', 'P1', 'PO8', 'FT8', 'CP3', 'T7', 'PO7', 'PO3', 'P4', 'FC4', 'O2', 'C5', 'P6', 'C3', 'P5', 'FT7', 'FC1', 'P2', 'F2']
 
     # full set of EEG channel names available in your dataset -> 54
     ch_names = ['FPZ', 'POZ', 'P7', 'OZ', 'P8', 'T8', 'AF4', 'CP2', 'PO4', 'CP4', 'FC6', 'C1', 'CP5', 'AF3', 'CP1', 'FZ', 'F1', 'CZ', 'PZ', 'F4', 'P3', 'F8', 'TP7', 'C6', 'O1', 'FC3',
@@ -229,11 +219,10 @@ def get_models(args):
     model = EEGPTClassifier(
         num_classes=args.nb_classes,
         in_channels=len(ch_names),
-        # 2000 time points in each sample
         img_size=[len(use_channels_names), 1024],
         use_channels_names=use_channels_names,
         use_chan_conv=True,
-        use_mean_pooling=args.use_mean_pooling,)
+        use_mean_pooling=args.use_mean_pooling, logdir=args.log_dir)
 
     print("This is the head of the model:", model.get_classifier())
 
@@ -285,8 +274,8 @@ def get_dataset(args):
     return train_dataset, test_dataset, val_dataset, ch_names, metrics
 
 
-def write_args_to_file(args):
-    args_file = os.path.join(args.output_dir, "args.txt")
+def write_args_to_file(args, output_dir):
+    args_file = os.path.join(output_dir, "args.txt")
     with open(args_file, "w") as f:
         f.write(
             f"date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
@@ -339,7 +328,7 @@ def write_args_to_file(args):
         f.write(
             f"disable_weight_decay_on_rel_pos_bias: {args.disable_weight_decay_on_rel_pos_bias}\n")
         f.write(f"nb_classes: {args.nb_classes}\n")
-        f.write(f"output_dir: {args.output_dir}\n")
+        f.write(f"output_dir: {output_dir}\n")
         f.write(f"log_dir: {args.log_dir}\n")
         f.write(f"device: {args.device}\n")
         f.write(f"seed: {args.seed}\n")
@@ -360,8 +349,8 @@ def write_args_to_file(args):
         f.write(f"dataset: {args.dataset}\n")
 
 
-def add_args_to_file(args, line):
-    args_file = os.path.join(args.output_dir, "args.txt")
+def add_args_to_file(output_dir, line):
+    args_file = os.path.join(output_dir, "args.txt")
     with open(args_file, "a") as f:
         f.write(f"{line}\n")
 
@@ -369,21 +358,31 @@ def add_args_to_file(args, line):
 def main(args, ds_init):
     # utils.init_distributed_mode(args) - not running distributed mode
 
-    global run_name
-    wandb.init(
-        project="deepEEG",
-        config=vars(args)
-    )
-    config = wandb.config
-    args.lr = config.lr
-    run_name = f"lr{config.lr:.5f}_bs{args.batch_size}"
-    wandb.run.name = run_name
-    args.output_dir = f"/scratch/chntzi001/khula/checkpoints/finetune_khula_eegpt/{run_name}"
-    args.log_dir = f"/home/chntzi001/deepEEG/EEGPT/downstream/log/{run_name}"
-    os.makedirs(args.output_dir, exist_ok=True)
+    if args.sweep:
+        global run_name
+        wandb.init(
+            project="deepEEG",
+            config=vars(args)
+        )
+        config = wandb.config
+        args.lr = config.lr
+        args.batch_size = config.batch_size
+        run_name = f"lr{config.lr:.5f}_bs{config.batch_size}_e{args.epochs}"
+        wandb.run.name = run_name
+    else:
+        run_name = f"lr{args.lr:.5f}_bs{args.batch_size}_e{args.epochs}"
+
+    if args.nb_classes > 1:
+        classification = "multiclass"
+    else:
+        classification = "binary"
+
+    output_dir = f"/scratch/chntzi001/khula/checkpoints/finetune_khula_eegpt/{classification}/{run_name}"
+    args.log_dir = f"/home/chntzi001/deepEEG/EEGPT/downstream/log/{classification}/{run_name}"
+    os.makedirs(output_dir, exist_ok=True)
     os.makedirs(args.log_dir, exist_ok=True)
     args.finetune = "/home/chntzi001/deepEEG/EEGPT/downstream/Checkpoints/eegpt_mcae_58chs_4s_large4E.ckpt"
-    write_args_to_file(args)
+    write_args_to_file(args, output_dir)
 
     hyperparameters = {
         "model": "EEGPT-large",
@@ -521,6 +520,7 @@ def main(args, ds_init):
 
         checkpoint_model = checkpoint['state_dict']
         # print(checkpoint_model)
+        print("about to call utils.load_state_dict!!!!!!!!!!!!!")
         utils.load_state_dict(model, checkpoint_model,
                               prefix=args.model_prefix)
 
@@ -552,11 +552,11 @@ def main(args, ds_init):
     print("Number of training training per epoch = %d" %
           num_training_steps_per_epoch)
 
-    add_args_to_file(args, "--------------------------")
+    add_args_to_file(output_dir, "--------------------------")
     line = "Number of training examples = %d" % len(dataset_train)
-    add_args_to_file(args, line)
+    add_args_to_file(output_dir, line)
     line = "Number of training per epoch = %d" % num_training_steps_per_epoch
-    add_args_to_file(args, line)
+    add_args_to_file(output_dir, line)
 
     num_layers = model_without_ddp.get_num_layers()
     if args.layer_decay < 1.0:
@@ -657,10 +657,11 @@ def main(args, ds_init):
             num_training_steps_per_epoch=num_training_steps_per_epoch, update_freq=args.update_freq,
             ch_names=ch_names, is_binary=args.nb_classes == 1
         )
-        wandb.log({f"train/{k}": v for k, v in train_stats.items()}
-                  | {"epoch": epoch})
+        if args.sweep:
+            wandb.log({f"train/{k}": v for k, v in train_stats.items()}
+                      | {"epoch": epoch})
 
-        if args.output_dir and args.save_ckpt:
+        if output_dir and args.save_ckpt:
             utils.save_model(
                 args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
                 loss_scaler=loss_scaler, epoch=epoch, model_ema=model_ema, save_ckpt_freq=args.save_ckpt_freq)
@@ -670,20 +671,23 @@ def main(args, ds_init):
             print("Here batch size is = %d" % int(1.5 * args.batch_size))
             val_stats = evaluate(data_loader_val, model, device, args, header='Val:',
                                  ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1)
-            wandb.log({f"val/{k}": v for k, v in val_stats.items()}
-                      | {"epoch": epoch})
+
+            if args.sweep:
+                wandb.log({f"val/{k}": v for k, v in val_stats.items()}
+                          | {"epoch": epoch})
             print(
                 f"Accuracy of the network on the {len(dataset_val)} val EEG: {val_stats['accuracy']:.2f}%")
             test_stats = evaluate(data_loader_test, model, device, args, header='Test:',
                                   ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1)
-            wandb.log({f"test/{k}": v for k, v in test_stats.items()}
-                      | {"epoch": epoch})
+            if args.sweep:
+                wandb.log({f"test/{k}": v for k, v in test_stats.items()}
+                          | {"epoch": epoch})
             print(
                 f"Accuracy of the network on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%")
 
             if max_accuracy < val_stats["accuracy"]:
                 max_accuracy = val_stats["accuracy"]
-                if args.output_dir and args.save_ckpt:
+                if output_dir and args.save_ckpt:
                     utils.save_model(
                         args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
                         loss_scaler=loss_scaler, epochNum=epoch, epoch="best", model_ema=model_ema)
@@ -757,22 +761,28 @@ def main(args, ds_init):
                          'epoch': epoch,
                          'n_parameters': n_parameters}
 
-        if args.output_dir and utils.is_main_process():
+        textfile = f"log_lr{args.lr}_bs{args.batch_size}.txt"
+        if output_dir and utils.is_main_process():
             if log_writer is not None:
                 log_writer.flush()
-            with open(os.path.join(args.output_dir, "log.txt"), mode="a", encoding="utf-8") as f:
-                f.write(json.dumps(hyperparameters) + "\n")
-                f.write("-------------------------------------- \n")
-                f.write(
-                    f'At epoch: {bestEpoch} -> Max accuracy val: {max_accuracy:.2f}%, max accuracy test: {max_accuracy_test:.2f}% \n')
-                f.write("-------------------------------------- \n")
+            with open(os.path.join(output_dir, textfile), mode="a", encoding="utf-8") as f:
                 f.write(json.dumps(log_stats) + "\n")
 
+    best = {
+        "epoch": bestEpoch,
+        "max_accuracy_val": max_accuracy,
+        "max_accuracy_test": max_accuracy_test
+    }
+
+    with open(os.path.join(output_dir, textfile), mode="a", encoding="utf-8") as f:
+        f.write(json.dumps(hyperparameters) + "\n")
+        f.write(json.dumps(best))
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     print('Training time {}'.format(total_time_str))
 
-    wandb.finish()
+    if args.sweep:
+        wandb.finish()
 
 
 if __name__ == '__main__':

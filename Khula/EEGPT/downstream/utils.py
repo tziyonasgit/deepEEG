@@ -437,6 +437,7 @@ def init_distributed_mode(args):
 
 
 def load_state_dict(model, state_dict, prefix='', ignore_missing="relative_position_index"):
+    print("loading the state dictionary!!!!!!!!!")
     missing_keys = []
     unexpected_keys = []
     error_msgs = []
@@ -456,6 +457,14 @@ def load_state_dict(model, state_dict, prefix='', ignore_missing="relative_posit
                 load(child, prefix + name + '.')
 
     load(model, prefix=prefix)
+
+    # missing_keys: params in the model but not found in checkpoint
+    # unexpected_keys: params in checkpoint but not expected in the model
+    print("=================================================")
+    print("missing_keys: ", missing_keys)
+    print("=================================================")
+    print("unexpected_keys: ", unexpected_keys)
+    print("=================================================")
 
     warn_missing_keys = []
     ignore_missing_keys = []
@@ -819,7 +828,7 @@ class KHULALoader(torch.utils.data.Dataset):
 
         Y = self.labels[class_label] - 1
         X = torch.FloatTensor(X)
-        # print("Returning sample with shape: ", X.shape, " and label: ", Y)
+        print("Returning sample with shape: ", X.shape, " and label: ", Y)
         return X, Y
 
 

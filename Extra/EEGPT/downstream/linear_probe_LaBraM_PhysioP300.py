@@ -24,7 +24,7 @@ def seed_torch(seed=1029):
 	torch.backends.cudnn.deterministic = True
 seed_torch(7)
 
-from utils import *
+from unified.utils import *
 import Modules.LaBraM.modeling_finetune
 
 import timm.models

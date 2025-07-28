@@ -28,7 +28,7 @@ def seed_torch(seed=1029):
 	torch.backends.cudnn.deterministic = True
 seed_torch(7)
 
-from utils import *
+from unified.utils import *
 from sklearn import metrics
 from utils_eval import get_metrics
 

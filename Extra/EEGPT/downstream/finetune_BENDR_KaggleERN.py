@@ -25,7 +25,7 @@ def seed_torch(seed=1029):
 seed_torch(7)
 
 from Modules.models.dn3_ext import BENDR, ConvEncoderBENDR
-from utils import temporal_interpolation
+from unified.utils import temporal_interpolation
 from sklearn import metrics
 from utils_eval import get_metrics
 
@@ -217,7 +217,7 @@ class LitEEGPTCausal(pl.LightningModule):
         
 # load configs
 # -- LOSO 
-from utils import *
+from unified.utils import *
 import math
 seed_torch(9)
 path = "../datasets/downstream"

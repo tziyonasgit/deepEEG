@@ -23,7 +23,7 @@ def seed_torch(seed=1029):
 	torch.backends.cudnn.deterministic = True
 seed_torch(7)
 
-from utils import temporal_interpolation
+from unified.utils import temporal_interpolation
 from utils_eval import get_metrics
 from Modules.Transformers.pos_embed import create_1d_absolute_sin_cos_embedding
 from Modules.models.EEGPT_mcae import EEGTransformer

@@ -188,7 +188,6 @@ def split_and_dump(params):
         print(f"Processed {file} with shape: {channeled_data.shape}")
 
         # channeled_data.shape[1] -> tells us number of time points
-        # we should have 2000 time points in each recording
         for i in range(channeled_data.shape[1] // 1024):
             dump_path = os.path.join(
                 dump_folder, file.split(".")[0] + "_" + str(i) + ".pkl"

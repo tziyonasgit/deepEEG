@@ -23,13 +23,13 @@ def seed_torch(seed=1029):
 	torch.backends.cudnn.deterministic = True
 seed_torch(7)
 
-from utils import temporal_interpolation
+from unified.utils import temporal_interpolation
 from Modules.Network.utils import Conv1dWithConstraint
 from Modules.BIOT.biot import (
     BIOTClassifier,
 )
 import torch
-from utils import temporal_interpolation
+from unified.utils import temporal_interpolation
 from utils_eval import get_metrics
 class LitEEGPTCausal(pl.LightningModule):
     def __init__(self, pretrain_model_choice = 0):

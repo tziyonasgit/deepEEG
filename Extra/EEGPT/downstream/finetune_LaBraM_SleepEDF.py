@@ -22,13 +22,13 @@ def seed_torch(seed=1029):
 	torch.backends.cudnn.deterministic = True
 seed_torch(7)
 
-from utils import temporal_interpolation
+from unified.utils import temporal_interpolation
 import Modules.LaBraM.modeling_finetune
 
 import timm.models
 from timm.models import create_model
 import torch
-from utils import temporal_interpolation
+from unified.utils import temporal_interpolation
 from utils_eval import get_metrics
 
 class LitEEGPTCausal(pl.LightningModule):

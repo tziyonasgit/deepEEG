@@ -16,7 +16,7 @@ import torchvision
 from pytorch_lightning import loggers as pl_loggers
 
 
-from utils import WarmupCosineSchedule, CosineWDSchedule, grad_logger
+from unified.utils import WarmupCosineSchedule, CosineWDSchedule, grad_logger
 from modeling_pretraining import EEGTransformer, EEGTransformerPredictor, EEGTransformerReconstructor, apply_mask
 from configs import *
 # -- use channels for model

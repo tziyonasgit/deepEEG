@@ -198,7 +198,7 @@ class LitEEGPTCausal(pl.LightningModule):
         
 # load configs
 # -- LOSO 
-from utils import *
+from unified.utils import *
 import math
 data_path = "../datasets/downstream/Data/BCIC_2b_0_38HZ/"
 seed_torch(8)
