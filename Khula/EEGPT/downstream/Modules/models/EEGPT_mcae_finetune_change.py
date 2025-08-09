@@ -35,10 +35,6 @@ CHANNEL_DICT = {k.upper(): v for v, k in enumerate(['FP1', 'FPZ', 'FP2',
                                                     'PO7', 'PO3', 'POZ',  'PO4', 'PO8',
                                                     'O1', 'OZ', 'O2', ]
                                                    )}
-# current data channel list AND is actually what is passed as use_channel_names
-chOrder_standard = ['FPZ', 'POZ', 'P7', 'OZ', 'P8', 'T8', 'AF4', 'CP2', 'PO4', 'CP4', 'FC6', 'C1', 'CP5', 'AF3', 'CP1', 'FZ', 'F1', 'CZ', 'PZ', 'F4', 'P3', 'F8', 'TP7', 'C6', 'O1', 'FC3',
-                    'C2', 'TP8', 'FC5', 'FCZ', 'C4', 'F3', 'FP2', 'CP6', 'FC2', 'F7', 'P1', 'PO8', 'FT8', 'CP3', 'T7', 'PO7', 'PO3', 'P4', 'FC4', 'O2', 'C5', 'P6', 'C3', 'P5', 'FT7', 'FC1', 'P2', 'F2']
-
 
 ################################# Utils ######################################
 
@@ -82,7 +78,7 @@ def trunc_normal_(tensor, mean=0., std=1., a=-2., b=2.):
 def apply_mask(mask, x):
     """
     :param x: tensor of shape [B (batch-size), N (num-patches), C, D (feature-dim)]
-    :param mask: tensor [mN, mC] containing indices of patches in [N, C] to keep 
+    :param mask: tensor [mN, mC] containing indices of patches in [N, C] to keep
     """
     B, N, C, D = x.shape
     if len(mask.shape) == 2:
@@ -104,7 +100,7 @@ def apply_mask(mask, x):
 def apply_mask_t(mask_t, x):
     """
     :param x: tensor of shape [B (batch-size), N (num-patches), C, D (feature-dim)]
-    :param mask: tensor [mN, mC] containing indices of patches in [N, C] to keep 
+    :param mask: tensor [mN, mC] containing indices of patches in [N, C] to keep
     """
     B, N, D = x.shape
     mN = mask_t.shape[0]
@@ -255,6 +251,7 @@ class Attention(nn.Module):
 
         self.use_rope = use_rope
 
+        # linear layer that ouputs query, key and value
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
 
         self.attn_drop = attn_drop
@@ -264,16 +261,26 @@ class Attention(nn.Module):
         self.return_attention = return_attention
 
     def forward(self, x, freqs=None):
+        # print("x: ", x)
+        # input [batchsize, number of patches, number of channels]
         B, T, C = x.shape
+        # print("B: ", B)
+        # print("T: ", T)
+        # print("C: ", C)
         qkv = self.qkv(x).reshape(B, T, 3, self.num_heads, C //
                                   # 3,B,nh,t,d
                                   self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]  # B,nh,t,d
+        # print("q: ", q)
+        # print("k: ", k)
+        # print("v: ", v)
 
         if self.use_rope:  # RoPE
             q = apply_rotary_emb(freqs, q)
             k = apply_rotary_emb(freqs, k)
+
         if self.return_attention:
+            # print("returning attention weights...")
             if self.is_causal:
                 attn_mask = torch.ones(
                     q.size(-2), q.size(-2), dtype=torch.bool).tril(diagonal=0)
@@ -285,6 +292,7 @@ class Attention(nn.Module):
             else:
                 attn_weight = torch.softmax(
                     (q @ k.transpose(-2, -1) / math.sqrt(q.size(-1))), dim=-1)
+            # print("attn_weight is: ", attn_weight)
             return attn_weight
         # efficient attention using Flash Attention CUDA kernels
         y = torch.nn.functional.scaled_dot_product_attention(
@@ -466,7 +474,7 @@ class EEGTransformer(nn.Module):
 
     def __init__(
         self,
-        img_size=(54, 1024),
+        img_size=(44, 1024),
         patch_size=64,
         patch_stride=None,
         embed_dim=768,
@@ -537,10 +545,13 @@ class EEGTransformer(nn.Module):
 
     def prepare_chan_ids(self, channels):
         chan_ids = []
+        chan_id_dict = {}
         for ch in channels:
             ch = ch.upper().strip('.')
             assert ch in CHANNEL_DICT, ch
             chan_ids.append(CHANNEL_DICT[ch])
+            chan_id_dict[ch] = CHANNEL_DICT[ch]
+        print("chan_ids_dict: ", chan_id_dict)
         return torch.tensor(chan_ids).unsqueeze_(0).long()
 
     def fix_init_weight(self):
@@ -630,6 +641,13 @@ class EEGTransformer(nn.Module):
         x = x.reshape((B, N, self.embed_num, -1))
 
         return x
+
+
+def getOutput(name, theOutputs):
+    # the hook signature
+    def hook(model, input, output):
+        theOutputs[name] = output.detach()
+    return hook
 
 
 class Conv1dWithConstraint(nn.Conv1d):
@@ -825,14 +843,14 @@ class EEGPTClassifier(nn.Module):
 
 
 if __name__ == "__main__":
-    use_channels_names = ['FPZ', 'POZ', 'P7', 'OZ', 'P8', 'T8', 'AF4', 'CP2', 'PO4', 'CP4', 'FC6', 'C1', 'CP5', 'AF3', 'CP1', 'FZ', 'F1', 'CZ', 'PZ', 'F4', 'P3', 'F8', 'TP7', 'C6', 'O1', 'FC3',
-                          'C2', 'TP8', 'FC5', 'FCZ', 'C4', 'F3', 'FP2', 'CP6', 'FC2', 'F7', 'P1', 'PO8', 'FT8', 'CP3', 'T7', 'PO7', 'PO3', 'P4', 'FC4', 'O2', 'C5', 'P6', 'C3', 'P5', 'FT7', 'FC1', 'P2', 'F2']
+    use_channels_names = ['F3', 'FP2', 'FT7', 'FC4', 'FZ', 'P5', 'FC2', 'C3', 'F8', 'F2', 'C6', 'AF4', 'P1', 'CPZ', 'FP1', 'FC1', 'P2', 'F4', 'PO8', 'FC5', 'OZ', 'C4', 'TP7', 'PZ', 'PO3', 'F7',
+                          'F6', 'FPZ', 'FC3', 'CP2', 'PO7', 'F5', 'P4', 'PO4', 'CP5', 'O2', 'FC6', 'C1', 'CP3', 'C2', 'CP1', 'TP8', 'FCZ', 'T7', 'P3', 'C5', 'CP4', 'P6', 'O1', 'AF3', 'FT8', 'CP6', 'POZ', 'F1']
 
-    ch_names = ['FPZ', 'POZ', 'P7', 'OZ', 'P8', 'T8', 'AF4', 'CP2', 'PO4', 'CP4', 'FC6', 'C1', 'CP5', 'AF3', 'CP1', 'FZ', 'F1', 'CZ', 'PZ', 'F4', 'P3', 'F8', 'TP7', 'C6', 'O1', 'FC3',
-                'C2', 'TP8', 'FC5', 'FCZ', 'C4', 'F3', 'FP2', 'CP6', 'FC2', 'F7', 'P1', 'PO8', 'FT8', 'CP3', 'T7', 'PO7', 'PO3', 'P4', 'FC4', 'O2', 'C5', 'P6', 'C3', 'P5', 'FT7', 'FC1', 'P2', 'F2']
+    ch_names = ['F3', 'FP2', 'FT7', 'FC4', 'FZ', 'P5', 'FC2', 'C3', 'F8', 'F2', 'C6', 'AF4', 'P1', 'CPZ', 'FP1', 'FC1', 'P2', 'F4', 'PO8', 'FC5', 'OZ', 'C4', 'TP7', 'PZ', 'PO3', 'F7',
+                'F6', 'FPZ', 'FC3', 'CP2', 'PO7', 'F5', 'P4', 'PO4', 'CP5', 'O2', 'FC6', 'C1', 'CP3', 'C2', 'CP1', 'TP8', 'FCZ', 'T7', 'P3', 'C5', 'CP4', 'P6', 'O1', 'AF3', 'FT8', 'CP6', 'POZ', 'F1']
 
     model = EEGPTClassifier(4, in_channels=len(ch_names), img_size=[len(
-        use_channels_names), 1000], use_channels_names=use_channels_names, use_chan_conv=True)
+        use_channels_names), 1024], use_channels_names=use_channels_names, use_chan_conv=True)
 
     x = torch.zeros((2, len(ch_names), 1000))
     with torch.no_grad():

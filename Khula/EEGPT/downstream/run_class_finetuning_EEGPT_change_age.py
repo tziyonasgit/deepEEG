@@ -18,10 +18,15 @@ from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
 from timm.utils import ModelEma
 from optim_factory import create_optimizer, get_parameter_groups, LayerDecayValueAssigner
 
-from engine_for_finetuning_EEGPT import train_one_epoch, evaluate
-from unified.utils import NativeScalerWithGradNormCount as NativeScaler
-import unified.utils as utils
-from Modules.models.EEGPT_mcae_finetune_change import EEGPTClassifier
+from engine_for_finetuning_EEGPT import train_one_epoch, evaluate, getVarOutputs
+from utils import NativeScalerWithGradNormCount as NativeScaler
+import utils
+from Modules.models.EEGPT_mcae_finetune_change import EEGPTClassifier, getOutput
+from sklearn.manifold import TSNE
+from sklearn.cluster import KMeans
+import matplotlib.pyplot as plt
+import matplotlib.cm as cm
+from collections import defaultdict
 
 
 def get_args():
@@ -194,28 +199,11 @@ def get_args():
 
 
 def get_models(args):
-    # CHANNEL_DICT = {k.upper():v for v,k in enumerate(
-    #                  [      'FP1', 'FPZ', 'FP2',
-    #                     "AF7", 'AF3', 'AF4', "AF8",
-    #         'F7', 'F5', 'F3', 'F1', 'FZ', 'F2', 'F4', 'F6', 'F8',
-    #     'FT7', 'FC5', 'FC3', 'FC1', 'FCZ', 'FC2', 'FC4', 'FC6', 'FT8',
-    #         'T7', 'C5', 'C3', 'C1', 'CZ', 'C2', 'C4', 'C6', 'T8',
-    #     'TP7', 'CP5', 'CP3', 'CP1', 'CPZ', 'CP2', 'CP4', 'CP6', 'TP8',
-    #          'P7', 'P5', 'P3', 'P1', 'PZ', 'P2', 'P4', 'P6', 'P8',
-    #                   'PO7', "PO5", 'PO3', 'POZ', 'PO4', "PO6", 'PO8',
-    #                            'O1', 'OZ', 'O2', ])}
 
-    use_channels_names = ['FPZ', 'POZ', 'P7', 'OZ', 'P8', 'T8', 'AF4', 'CP2', 'PO4', 'CP4', 'FC6', 'C1', 'CP5', 'AF3', 'CP1', 'FZ', 'F1', 'CZ', 'PZ', 'F4', 'P3', 'F8', 'TP7', 'C6', 'O1', 'FC3',
-                          'C2', 'TP8', 'FC5', 'FCZ', 'C4', 'F3', 'FP2', 'CP6', 'FC2', 'F7', 'P1', 'PO8', 'FT8', 'CP3', 'T7', 'PO7', 'PO3', 'P4', 'FC4', 'O2', 'C5', 'P6', 'C3', 'P5', 'FT7', 'FC1', 'P2', 'F2']
-
-    # full set of EEG channel names available in your dataset -> 54
-    ch_names = ['FPZ', 'POZ', 'P7', 'OZ', 'P8', 'T8', 'AF4', 'CP2', 'PO4', 'CP4', 'FC6', 'C1', 'CP5', 'AF3', 'CP1', 'FZ', 'F1', 'CZ', 'PZ', 'F4', 'P3', 'F8', 'TP7', 'C6', 'O1', 'FC3',
-                'C2', 'TP8', 'FC5', 'FCZ', 'C4', 'F3', 'FP2', 'CP6', 'FC2', 'F7', 'P1', 'PO8', 'FT8', 'CP3', 'T7', 'PO7', 'PO3', 'P4', 'FC4', 'O2', 'C5', 'P6', 'C3', 'P5', 'FT7', 'FC1', 'P2', 'F2']
-
-    # in_channels -> tells model how many channels to expect in the EEG data
-    # use_channels_names -> tells model which channels to use during training
-    # every channel in use_channels_names must be present in ch_names, ch_names > use_channels_names
-
+    use_channels_names = ['F3', 'FP2', 'FT7', 'FC4', 'FZ', 'P5', 'FC2', 'C3', 'F8', 'F2', 'C6', 'AF4', 'P1', 'CPZ', 'FP1', 'FC1', 'P2', 'F4', 'PO8', 'FC5', 'OZ', 'C4', 'TP7', 'PZ', 'PO3', 'F7',
+                          'F6', 'FPZ', 'FC3', 'CP2', 'PO7', 'F5', 'P4', 'PO4', 'CP5', 'O2', 'FC6', 'C1', 'CP3', 'C2', 'CP1', 'TP8', 'FCZ', 'T7', 'P3', 'C5', 'CP4', 'P6', 'O1', 'AF3', 'FT8', 'CP6', 'POZ', 'F1']
+    ch_names = ['F3', 'FP2', 'FT7', 'FC4', 'FZ', 'P5', 'FC2', 'C3', 'F8', 'F2', 'C6', 'AF4', 'P1', 'CPZ', 'FP1', 'FC1', 'P2', 'F4', 'PO8', 'FC5', 'OZ', 'C4', 'TP7', 'PZ', 'PO3', 'F7',
+                'F6', 'FPZ', 'FC3', 'CP2', 'PO7', 'F5', 'P4', 'PO4', 'CP5', 'O2', 'FC6', 'C1', 'CP3', 'C2', 'CP1', 'TP8', 'FCZ', 'T7', 'P3', 'C5', 'CP4', 'P6', 'O1', 'AF3', 'FT8', 'CP6', 'POZ', 'F1']
     model = EEGPTClassifier(
         num_classes=args.nb_classes,
         in_channels=len(ch_names),
@@ -224,53 +212,29 @@ def get_models(args):
         use_chan_conv=True,
         use_mean_pooling=args.use_mean_pooling, logdir=args.log_dir)
 
+    print("channels names:", use_channels_names)
+
     print("This is the head of the model:", model.get_classifier())
 
     return model
 
 
 def get_dataset(args):
-    if args.dataset == 'TUAB':
-        train_dataset, test_dataset, val_dataset = utils.prepare_TUAB_dataset(
-            "../datasets/downstream/tuh_eeg_abnormal/v3.0.1/edf/processed/")
-        ch_names = ['EEG FP1', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF',
-                    'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
-        ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
-        args.nb_classes = 1
-        metrics = ["pr_auc", "roc_auc", "accuracy", "balanced_accuracy"]
-
-    elif args.dataset == 'TUEV':
-        train_dataset, test_dataset, val_dataset = utils.prepare_TUEV_dataset(
-            "../datasets/downstream/tuh_eeg_events/v2.0.1/edf/processed/")
-        ch_names = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF',
-                    'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
-
-        ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
-        args.nb_classes = 6
-        metrics = ["accuracy", "balanced_accuracy",
-                   "cohen_kappa", "f1_weighted"]
-
-    elif args.dataset == 'KHULA':
+    if args.dataset == 'KHULA':
         print("Preparing KHULA dataset...")
+        if args.nb_classes > 1:
+            filepath = "/scratch/chntzi001/khula/processed/"
+        else:
+            filepath = "/scratch/chntzi001/khula/processedBinary/"
         train_dataset, test_dataset, val_dataset = utils.prepare_KHULA_dataset(
-            "/scratch/chntzi001/khula/processed/")
+            filepath, args.nb_classes)
 
-        ch_names = ['FPZ', 'POZ', 'P7', 'OZ', 'P8', 'T8', 'AF4', 'CP2', 'PO4', 'CP4', 'FC6', 'C1', 'CP5', 'AF3', 'CP1', 'FZ', 'F1', 'CZ', 'PZ', 'F4', 'P3', 'F8', 'TP7', 'C6', 'O1', 'FC3',
-                    'C2', 'TP8', 'FC5', 'FCZ', 'C4', 'F3', 'FP2', 'CP6', 'FC2', 'F7', 'P1', 'PO8', 'FT8', 'CP3', 'T7', 'PO7', 'PO3', 'P4', 'FC4', 'O2', 'C5', 'P6', 'C3', 'P5', 'FT7', 'FC1', 'P2', 'F2']
-
+        ch_names = ['F3', 'FP2', 'FT7', 'FC4', 'FZ', 'P5', 'FC2', 'C3', 'F8', 'F2', 'C6', 'AF4', 'P1', 'CPZ', 'FP1', 'FC1', 'P2', 'F4', 'PO8', 'FC5', 'OZ', 'C4', 'TP7', 'PZ', 'PO3', 'F7',
+                    'F6', 'FPZ', 'FC3', 'CP2', 'PO7', 'F5', 'P4', 'PO4', 'CP5', 'O2', 'FC6', 'C1', 'CP3', 'C2', 'CP1', 'TP8', 'FCZ', 'T7', 'P3', 'C5', 'CP4', 'P6', 'O1', 'AF3', 'FT8', 'CP6', 'POZ', 'F1']
         args.nb_classes = 4
         metrics = ["accuracy", "balanced_accuracy",
                    "cohen_kappa", "f1_weighted"]
 
-    elif args.dataset == 'TUSZ':
-        train_dataset, test_dataset, val_dataset = utils.prepare_TUSZ_dataset(
-            None)
-
-        ch_names = ['FP1', 'F3', 'C3', 'P3', 'F7', 'T3', 'T5', 'O1', 'FZ',
-                    'CZ', 'PZ', 'FP2', 'F4', 'C4', 'P4', 'F8', 'T4', 'T6', 'O2']
-        args.nb_classes = 8
-        metrics = ["accuracy", "balanced_accuracy",
-                   "cohen_kappa", "f1_weighted"]
     return train_dataset, test_dataset, val_dataset, ch_names, metrics
 
 
@@ -370,17 +334,21 @@ def main(args, ds_init):
         run_name = f"lr{config.lr:.5f}_bs{config.batch_size}_e{args.epochs}"
         wandb.run.name = run_name
     else:
-        run_name = f"lr{args.lr:.5f}_bs{args.batch_size}_e{args.epochs}"
+        print(f"lr{args.lr:.6f}@!!!!!!!")
+        run_name = f"lr{args.lr:.6f}_bs{args.batch_size}_e{args.epochs}"
 
     if args.nb_classes > 1:
         classification = "multiclass"
     else:
         classification = "binary"
 
-    output_dir = f"/scratch/chntzi001/khula/checkpoints/finetune_khula_eegpt/{classification}/{run_name}"
-    args.log_dir = f"/home/chntzi001/deepEEG/EEGPT/downstream/log/{classification}/{run_name}"
+    args.output_dir = f"/scratch/chntzi001/khula/checkpoints/finetune_khula_eegpt/{classification}/09-08/{run_name}/run1"
+    output_dir = args.output_dir
+    args.log_dir = f"/home/chntzi001/deepEEG/EEGPT/downstream/log/{classification}/09-08/{run_name}/run1"
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(args.log_dir, exist_ok=True)
+    tsneplots = f"/scratch/chntzi001/khula/checkpoints/finetune_khula_eegpt/{classification}/09-08/{run_name}/run1/tsne_plots"
+    os.makedirs(tsneplots, exist_ok=True)
     args.finetune = "/home/chntzi001/deepEEG/EEGPT/downstream/Checkpoints/eegpt_mcae_58chs_4s_large4E.ckpt"
     write_args_to_file(args, output_dir)
 
@@ -390,10 +358,17 @@ def main(args, ds_init):
         "batch_size": args.batch_size,
     }
 
+    penultimate_layer = "(fc_norm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)"
+
     output_csv = os.path.join(args.log_dir, "predictions.csv")
     with open(output_csv, mode='w', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(["Prediction", "True Label"])
+
+    cluster_csv = os.path.join(tsneplots, "clusterdist.csv")
+    with open(cluster_csv, mode='w') as file:
+        writer = csv.writer(file)
+        writer.writerow(['Cluster', '3M', '6M', '12M', '24M'])
 
     if ds_init is not None:
         utils.create_ds_config(args)
@@ -403,10 +378,9 @@ def main(args, ds_init):
     device = torch.device(args.device)
 
     # fix the seed for reproducibility
-    seed = args.seed + utils.get_rank()
+    seed = args.seed
     torch.manual_seed(seed)
     np.random.seed(seed)
-    # random.seed(seed)
 
     cudnn.benchmark = True
 
@@ -501,6 +475,9 @@ def main(args, ds_init):
         data_loader_test = None
 
     model = get_models(args)
+    theOutputs = getVarOutputs()
+    h = model.target_encoder.norm.register_forward_hook(
+        getOutput('penultimate', theOutputs))
 
     patch_size = 64  # model.patch_size
     print("Patch size = %s" % str(patch_size))
@@ -549,7 +526,7 @@ def main(args, ds_init):
     print("Batch size = %d" % total_batch_size)
     print("Update frequent = %d" % args.update_freq)
     print("Number of training examples = %d" % len(dataset_train))
-    print("Number of training training per epoch = %d" %
+    print("Number of training per epoch = %d" %
           num_training_steps_per_epoch)
 
     add_args_to_file(output_dir, "--------------------------")
@@ -638,7 +615,7 @@ def main(args, ds_init):
         print(
             f"======Accuracy: {np.mean(accuracy)} {np.std(accuracy)}, balanced accuracy: {np.mean(balanced_accuracy)} {np.std(balanced_accuracy)}")
         exit(0)
-
+    print("ch_names before training = %s" % str(ch_names))
     print(f"Start training for {args.epochs} epochs")
     start_time = time.time()
     max_accuracy = 0.0
@@ -649,14 +626,63 @@ def main(args, ds_init):
         if log_writer is not None:
             log_writer.set_step(
                 epoch * num_training_steps_per_epoch * args.update_freq)
-        train_stats = train_one_epoch(
+        train_stats, feats, lbls = train_one_epoch(
             model, criterion, data_loader_train, optimizer,
             device, epoch, loss_scaler, args.clip_grad, model_ema,
             log_writer=log_writer, start_steps=epoch * num_training_steps_per_epoch,
             lr_schedule_values=lr_schedule_values, wd_schedule_values=wd_schedule_values,
             num_training_steps_per_epoch=num_training_steps_per_epoch, update_freq=args.update_freq,
-            ch_names=ch_names, is_binary=args.nb_classes == 1
+            ch_names=ch_names, is_binary=args.nb_classes == 1,
         )
+
+        # Creating TSNE plots
+        tsne = TSNE(n_components=2, random_state=0, perplexity=30)
+        if isinstance(feats, list):
+            feats = torch.cat(feats, dim=0)
+        if isinstance(lbls, list):
+            lbls = torch.cat(lbls, dim=0)
+        features_2d = tsne.fit_transform(feats.cpu().numpy())
+        unique_labels = np.unique(lbls.cpu().numpy())
+        age = {0: '3M', 1: '6M', 2: '12M', 3: '24M'}
+        colours = ['#800080',
+                   "#5959EDFF",
+                   "#0ABA0A",
+                   '#000000']
+        kmeans = KMeans(n_clusters=4, random_state=0)
+        clusters = kmeans.fit_predict(features_2d)
+
+        plt.figure(figsize=(8, 6))
+        # cluster-wise colouring
+        for cluster_id in np.unique(clusters):
+            idx = clusters == cluster_id
+            plt.scatter(
+                features_2d[idx, 0], features_2d[idx, 1],
+                color=colours[cluster_id],
+                s=20, alpha=0.7,
+                label=f"Cluster {cluster_id}"
+            )
+        plt.title("k=4")
+        plt.legend(title="Cluster ID", loc="best")
+        plt.grid(True)
+        filename = f"tsne_epoch{epoch}.png"
+        plotpath = os.path.join(tsneplots, filename)
+        plt.savefig(plotpath, dpi=300, bbox_inches='tight')
+        plt.close()
+
+        # logging stats of clusters (via csv)
+        cluster_ids = clusters
+        true_labels = lbls.cpu().numpy()
+        distribution = defaultdict(lambda: defaultdict(int))
+        for cluster_id, true_label in zip(cluster_ids, true_labels):
+            distribution[cluster_id][true_label] += 1
+
+        with open(cluster_csv, mode='a') as file:
+            writer = csv.writer(file)
+            for cluster_id, label_counts in distribution.items():
+                clusterID = f"{epoch}_{cluster_id}"
+                writer.writerow([clusterID, label_counts.get(0, 0), label_counts.get(1, 0),
+                                 label_counts.get(2, 0), label_counts.get(3, 0)])
+
         if args.sweep:
             wandb.log({f"train/{k}": v for k, v in train_stats.items()}
                       | {"epoch": epoch})
@@ -789,4 +815,5 @@ if __name__ == '__main__':
     opts, ds_init = get_args()
     if opts.output_dir:
         Path(opts.output_dir).mkdir(parents=True, exist_ok=True)
+    print("lr!!!! is:", opts.lr)
     main(opts, ds_init)

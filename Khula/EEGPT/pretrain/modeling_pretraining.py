@@ -2,30 +2,17 @@ import math
 import torch
 import torch.nn as nn
 
-# CHANNEL_DICT = {k.upper():v for v,k in enumerate(
-#                      [      'FP1', 'FPZ', 'FP2',
-#                         "AF7", 'AF3', 'AF4', "AF8",
-#             'F7', 'F5', 'F3', 'F1', 'FZ', 'F2', 'F4', 'F6', 'F8',
-#         'FT7', 'FC5', 'FC3', 'FC1', 'FCZ', 'FC2', 'FC4', 'FC6', 'FT8',
-#             'T7', 'C5', 'C3', 'C1', 'CZ', 'C2', 'C4', 'C6', 'T8',
-#         'TP7', 'CP5', 'CP3', 'CP1', 'CPZ', 'CP2', 'CP4', 'CP6', 'TP8',
-#              'P7', 'P5', 'P3', 'P1', 'PZ', 'P2', 'P4', 'P6', 'P8',
-#                       'PO7', "PO5", 'PO3', 'POZ', 'PO4', "PO6", 'PO8',
-#                                'O1', 'OZ', 'O2', ])}
-
-CHANNEL_DICT = {k.upper(): v for v, k in
-                enumerate(['E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E9', 'E10',
-                           'E11', 'E12', 'E13', 'E15', 'E16', 'E18', 'E19', 'E20', 'E22',
-                           'E23', 'E24', 'E26', 'E27', 'E28', 'E29', 'E30', 'E31', 'E33',
-                           'E34', 'E35', 'E36', 'E37', 'E39', 'E40', 'E41', 'E42', 'E45',
-                           'E46', 'E47', 'E50', 'E51', 'E52', 'E53', 'E54', 'E55', 'E57',
-                           'E58', 'E59', 'E60', 'E61', 'E62', 'E63', 'E64', 'E65', 'E66',
-                           'E67', 'E69', 'E70', 'E71', 'E72', 'E74', 'E75', 'E76', 'E77',
-                           'E78', 'E79', 'E80', 'E82', 'E83', 'E84', 'E85', 'E86', 'E87',
-                           'E89', 'E90', 'E91', 'E92', 'E93', 'E95', 'E96', 'E97', 'E98',
-                           'E100', 'E101', 'E102', 'E103', 'E104', 'E105', 'E106', 'E108',
-                           'E109', 'E110', 'E111', 'E112', 'E115', 'E116', 'E117', 'E118',
-                           'E122', 'E123', 'E124'])}
+# CHANNEL_DICT should be replaced by the actual channels of the input EEG data
+CHANNEL_DICT = {k.upper(): v for v, k in enumerate(
+    ['FP1', 'FPZ', 'FP2',
+     "AF7", 'AF3', 'AF4', "AF8",
+     'F7', 'F5', 'F3', 'F1', 'FZ', 'F2', 'F4', 'F6', 'F8',
+     'FT7', 'FC5', 'FC3', 'FC1', 'FCZ', 'FC2', 'FC4', 'FC6', 'FT8',
+     'T7', 'C5', 'C3', 'C1', 'CZ', 'C2', 'C4', 'C6', 'T8',
+     'TP7', 'CP5', 'CP3', 'CP1', 'CPZ', 'CP2', 'CP4', 'CP6', 'TP8',
+     'P7', 'P5', 'P3', 'P1', 'PZ', 'P2', 'P4', 'P6', 'P8',
+     'PO7', "PO5", 'PO3', 'POZ', 'PO4', "PO6", 'PO8',
+     'O1', 'OZ', 'O2', ])}
 
 ################################# Utils ######################################
 
@@ -253,6 +240,8 @@ class MLP(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
         super().__init__()
         out_features = out_features or in_features
+        print("MLP out_features is shape: ", out_features)
+        # MLP out_features is shape:  64
         hidden_features = hidden_features or in_features
         self.fc1 = nn.Linear(in_features, hidden_features)
         self.act = act_layer()
@@ -738,7 +727,7 @@ class EEGTransformer(nn.Module):
 
     def __init__(
         self,
-        img_size=(64, 1000),
+        img_size=(54, 1024),
         patch_size=64,
         patch_stride=None,
         embed_dim=768,
@@ -795,10 +784,12 @@ class EEGTransformer(nn.Module):
 
     def prepare_chan_ids(self, channels):
         chan_ids = []
+        print("the channels in the EEG data is: ", channels)
         for ch in channels:
             ch = ch.upper().strip('.')
-            assert ch in CHANNEL_DICT
+            assert ch in CHANNEL_DICT, f"Channel {ch} not found in CHANNEL_DICT"
             chan_ids.append(CHANNEL_DICT[ch])
+        print("number if chan_ids: ", len(chan_ids))
         return torch.tensor(chan_ids).unsqueeze_(0).long()
 
     def fix_init_weight(self):
@@ -833,13 +824,17 @@ class EEGTransformer(nn.Module):
         x = self.patch_embed(x)
         B, N, C, D = x.shape
 
+        print("x shape: ", x.shape)  # torch.Size([64, 16, 54, 512])
         assert N == self.num_patches[1] and C == self.num_patches[
             0], f"{N}=={self.num_patches[1]} and {C}=={self.num_patches[0]}"
 
+        print("chan_ids here is: ", chan_ids)
         if chan_ids is None:
             chan_ids = torch.arange(0, C)
-        chan_ids = chan_ids.to(x)
 
+        print("number if chan_ids: ", len(chan_ids[0]))
+        chan_ids = chan_ids.to(x)
+        print("number of chan_ids: ", len(chan_ids[0]))
         # -- add channels positional embedding to x
         # (1,C) -> (1,1,C,D)
         x = x + self.chan_embed(chan_ids.long()).unsqueeze(0)

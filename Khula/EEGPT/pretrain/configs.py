@@ -7,8 +7,10 @@ import random
 
 def load_fn(x):
     x = torch.load(x)
+    if x.shape != (54, 1024):
+        raise ValueError(f"Bad shape {x.shape} in {x}", flush=True)
 
-    window_length = 2*1000
+    window_length = 1024
     data_length = x.shape[1]
 
     # Calculate the maximum starting index for the windows
@@ -22,16 +24,16 @@ def load_fn(x):
     return x
 
 
-max_epochs = 200
-max_lr = 5e-4
+max_epochs = 20
+max_lr = 4e-5
 batch_size = 64
 devices = [0]
 
 
 train_dataset = torchvision.datasets.DatasetFolder(
-    root="/scratch/chntzi001/khula/pretrain/TrainFolder/", loader=load_fn,  extensions=['.set'])
+    root="/scratch/chntzi001/khula/pretrain/TrainFolder/", loader=load_fn,  extensions=['.pt'])
 valid_dataset = torchvision.datasets.DatasetFolder(
-    root="/scratch/chntzi001/khula/pretrain/ValidFolder/", loader=load_fn, extensions=['.set'])
+    root="/scratch/chntzi001/khula/pretrain/ValidFolder/", loader=load_fn, extensions=['.pt'])
 
 train_loader = torch.utils.data.DataLoader(
     train_dataset, batch_size=batch_size, num_workers=0, shuffle=True)

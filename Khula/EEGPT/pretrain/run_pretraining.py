@@ -1,16 +1,11 @@
-# Training in 1000Hz data and 2s
+
 import torch
 from pytorch_lightning import loggers as pl_loggers
-
 from engine_pretraining import *
 from configs import *
 torch.set_float32_matmul_precision("medium")
 
 seed_torch(7)
-
-
-# init model
-
 
 model = LitEEGPT(get_config(**(MODELS_CONFIGS[tag])),
                  USE_LOSS_A=(variant != "A"),

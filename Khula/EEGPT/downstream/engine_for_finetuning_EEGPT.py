@@ -13,13 +13,16 @@ import sys
 from typing import Iterable, Optional
 import torch
 from timm.utils import ModelEma
-import unified.utils as utils
+import utils
 from einops import rearrange
 import csv
 import numpy as np
 import wandb
 import os
+theOutputs = {}
 
+def getVarOutputs():
+    return theOutputs
 
 def train_class_batch(model, samples, target, criterion, ch_names):
     outputs = model(samples)
@@ -49,6 +52,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         window_size=1, fmt='{value:.6f}'))
     header = 'Epoch: [{}]'.format(epoch)
     print_freq = 10
+
 
     if loss_scaler is None:
         model.zero_grad()
@@ -84,6 +88,13 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             with torch.amp.autocast(device_type='cuda'):
                 loss, output = train_class_batch(
                     model, samples, targets, criterion, input_chans)
+        
+        print("outputsss['penultimate']",theOutputs['penultimate'])
+        print("outputsss['penultimate'].shape", theOutputs['penultimate'].shape) # shape is [4096, 4, 512]
+        features = theOutputs['penultimate']
+        features = features.view(128, 16, 4, 512)
+        features_flat = features.mean(dim=(1, 2))
+        labels_flat = targets
 
         loss_value = loss.item()
 
@@ -158,7 +169,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
-    return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+    return {k: meter.global_avg for k, meter in metric_logger.meters.items()}, features_flat, labels_flat
 
 
 @torch.no_grad()
@@ -179,11 +190,6 @@ def evaluate(data_loader, model, device, args, header='Test:', ch_names=None, me
 
     pred = []
     true = []
-
-    output_csv = os.path.join(args.log_dir, "predictions.csv")
-    with open(output_csv, mode='w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(["Prediction", "True Label"])
 
     for step, batch in enumerate(metric_logger.log_every(data_loader, 10, header)):
         EEG = batch[0]  # batch[0] is the EEG data - X
@@ -229,6 +235,7 @@ def evaluate(data_loader, model, device, args, header='Test:', ch_names=None, me
             print("preds_class: ", preds_list)
             print("target_class: ", target_list)
 
+        output_csv = os.path.join(args.log_dir, "predictions.csv")
         with open(output_csv, mode='a', newline='') as file:
             writer = csv.writer(file)
             writer.writerows(zip(preds_list, target_list))

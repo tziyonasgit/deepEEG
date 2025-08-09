@@ -592,6 +592,7 @@ def cosine_scheduler(base_value, final_value, epochs, niter_per_ep, warmup_epoch
 def save_model(args, epoch, model, model_without_ddp, optimizer, loss_scaler, epochNum=None, model_ema=None, optimizer_disc=None, save_ckpt_freq=1):
     output_dir = Path(args.output_dir)
     epoch_name = str(epoch)
+    print("output directory for checkpoints is: ",output_dir)
 
     if not getattr(args, 'enable_deepspeed', False):
         checkpoint_paths = [output_dir / 'checkpoint.pth']
@@ -828,10 +829,25 @@ class KHULALoader(torch.utils.data.Dataset):
 
         Y = self.labels[class_label] - 1
         X = torch.FloatTensor(X)
-        print("Returning sample with shape: ", X.shape, " and label: ", Y)
         return X, Y
 
+class KHULAbinLoader(torch.utils.data.Dataset):
+    def __init__(self, root, files, sampling_rate=200):
+        self.root = root
+        self.files = files
+        self.sampling_rate = sampling_rate
 
+    def __len__(self):
+        return len(self.files)
+
+    def __getitem__(self, index):
+        sample = pickle.load(
+            open(os.path.join(self.root, self.files[index]), "rb"))
+        X = sample["X"]
+        Y = sample["y"]
+        X = torch.FloatTensor(X)
+        return X, Y
+    
 def prepare_TUEV_dataset(root):
     # set random seed
     seed = 4523
@@ -878,7 +894,7 @@ def prepare_TUAB_dataset(root):
     return train_dataset, test_dataset, val_dataset
 
 
-def prepare_KHULA_dataset(root):
+def prepare_KHULA_dataset(root, numClasses):
     # set random seed
     seed = 12345
     np.random.seed(seed)
@@ -891,9 +907,14 @@ def prepare_KHULA_dataset(root):
     print(len(train_files), len(val_files), len(test_files))
 
     # prepare training and test data loader
-    train_dataset = KHULALoader(os.path.join(root, "train"), train_files)
-    test_dataset = KHULALoader(os.path.join(root, "test"), test_files)
-    val_dataset = KHULALoader(os.path.join(root, "val"), val_files)
+    if numClasses > 1 :
+        train_dataset = KHULALoader(os.path.join(root, "train"), train_files)
+        test_dataset = KHULALoader(os.path.join(root, "test"), test_files)
+        val_dataset = KHULALoader(os.path.join(root, "val"), val_files)
+    else:
+        train_dataset = KHULAbinLoader(os.path.join(root, "train"), train_files)
+        test_dataset = KHULAbinLoader(os.path.join(root, "test"), test_files)
+        val_dataset = KHULAbinLoader(os.path.join(root, "val"), val_files)
     print(len(train_files), len(val_files), len(test_files))
     return train_dataset, test_dataset, val_dataset
 

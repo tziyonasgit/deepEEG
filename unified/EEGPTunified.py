@@ -36,6 +36,9 @@ from functools import partial
 from logging import getLogger
 logger = getLogger()
 import torch.distributed as dist
+outputsss = {}
+from sklearn.manifold import TSNE
+import matplotlib.pyplot as plt
 
 standard_1020 = [
     'FP1', 'FPZ', 'FP2',
@@ -71,6 +74,12 @@ def main(args):
     with open(output_csv, mode='w', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(["Prediction", "True Label"])
+        
+        
+    direc = 'results/'
+    X = np.load("data/X_pc.npy")
+    y = np.load("data/y_pc.npy")
+    wrapper(direc, X, y)
 
     sampler_train = torch.utils.data.SequentialSampler(
         dataset_train)
@@ -79,6 +88,8 @@ def main(args):
 
     os.makedirs(args.log_dir, exist_ok=True)
     log_writer = TensorboardLogger(log_dir=args.log_dir)
+    os.makedirs("tsne_plots", exist_ok=True)
+
     
     print("Setting up training dataset")
     data_loader_train = torch.utils.data.DataLoader(
@@ -100,6 +111,14 @@ def main(args):
             )
 
     model = get_models(args)
+    layers = list(model.children())
+    
+    print(layers)
+    print(layers[-2])
+   
+    h = model.target_encoder.norm.register_forward_hook(getOutput('penultimate', outputsss))
+    print("target_encoder: ",model.target_encoder)
+    print("heyyyy: ",model.fc_norm)
     patch_size = 64  
     window_size = (1, args.input_size // patch_size)
     print("patch_size: ", patch_size)
@@ -166,12 +185,15 @@ def main(args):
     max_accuracy = 0.0
     max_accuracy_test = 0.0
     
+    
     for epoch in range(args.start_epoch, args.epochs):
+        features_flat = []
+        labels_flat =[]
         if log_writer is not None:
             log_writer.set_step(
                 epoch * num_training_steps_per_epoch * args.update_freq)
         print("got here......")
-        train_stats = train_one_epoch(
+        train_stats, feats, lbls = train_one_epoch(
                 model, criterion, data_loader_train, optimizer,
                 device, epoch, loss_scaler, args.clip_grad, model_ema,
                 log_writer=log_writer, start_steps=epoch * num_training_steps_per_epoch,
@@ -179,6 +201,31 @@ def main(args):
                 num_training_steps_per_epoch=num_training_steps_per_epoch, update_freq=args.update_freq,
                 ch_names=ch_names, is_binary=args.nb_classes == 1
             )
+        tsne = TSNE(n_components=2, random_state=0, perplexity=30)
+        if isinstance(feats, list):
+            feats = torch.cat(feats, dim=0)
+        if isinstance(lbls, list):
+            lbls = torch.cat(lbls, dim=0)
+        print("features_flat is: ", feats)
+        features_2d = tsne.fit_transform(feats.cpu().numpy())
+        
+        plt.figure(figsize=(8, 6))
+        scatter = plt.scatter(
+            features_2d[:, 0],
+            features_2d[:, 1],
+            c=lbls.cpu().numpy(),   # color by class
+            cmap='tab10',              # or 'Set1', 'viridis', etc.
+            s=20,
+            alpha=0.7
+        )
+        plt.colorbar(scatter, ticks=range(len(set(lbls.tolist()))))
+        plt.title("t-SNE of EEG Features Colored by Class Label")
+        plt.xlabel("TSNE-1")
+        plt.ylabel("TSNE-2")
+        plt.grid(True)
+        plt.savefig(f"tsne_plots/tsne_epoch{epoch}.png", dpi=300, bbox_inches='tight')
+        plt.close() 
+        
         print("got here......though")
         if data_loader_val is not None:
             print("============== Evaluating on validation and test set ==============")
@@ -324,8 +371,14 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                 with torch.amp.autocast(device_type='cpu'):
                     loss, output = train_class_batch(
                         model, samples, targets, criterion, input_chans)
-            
-
+        
+        print("outputsss['penultimate']",outputsss['penultimate'])
+        print("outputsss['penultimate'].shape", outputsss['penultimate'].shape) # shape is [4096, 4, 512]
+        features = outputsss['penultimate']
+        features = features.view(256, 16, 4, 512)
+        features_flat = features.mean(dim=(1, 2))
+        labels_flat = targets
+        
         loss_value = loss.item()
 
         if not math.isfinite(loss_value):
@@ -394,7 +447,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
-    return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+    return {k: meter.global_avg for k, meter in metric_logger.meters.items()}, features_flat, labels_flat
 
 def get_loss_scale_for_deepspeed(model):
     optimizer = model.optimizer
@@ -447,6 +500,9 @@ def evaluate(data_loader, model, device, args, header='Test:', ch_names=None, me
             with torch.amp.autocast(device_type='cpu'):
                 output = model(EEG)
                 loss = criterion(output, target)
+        
+        
+        
 
         print("output shape: ", output.shape)
 
@@ -645,6 +701,10 @@ def get_models(args):
         use_mean_pooling=args.use_mean_pooling, logdir=args.log_dir)
     
     print("made model")
+    print("These are the layers: ", model.children())
+    
+    
+
 
     return model
 
@@ -731,8 +791,12 @@ class KHULALoader(torch.utils.data.Dataset):
         return len(self.files)
 
     def __getitem__(self, index):
-        sample = pickle.load(
-            open(os.path.join(self.root, self.files[index]), "rb"))
+        try:
+            sample = pickle.load(
+                open(os.path.join(self.root, self.files[index]), "rb"))
+        except Exception as e:
+            print(f"⚠️ Skipping corrupted file: {self.files[index]} — {e}")
+            return self.__getitem__((index + 1) % len(self.files))
         X = sample["X"]
         if self.sampling_rate != self.default_rate:
             X = resample(X, 5 * self.sampling_rate, axis=-1)
@@ -1146,6 +1210,8 @@ class MLP(nn.Module):
         self.act = act_layer()
         self.fc2 = nn.Linear(hidden_features, out_features)
         self.drop = nn.Dropout(drop)
+        
+        
 
     def forward(self, x):
         x = self.fc1(x)
@@ -1212,7 +1278,7 @@ class Block(nn.Module):
                  drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, is_causal=False, use_rope=False, return_attention=False):
         super().__init__()
 
-        self.return_attention = True
+        self.return_attention = return_attention
         self.norm1 = norm_layer(dim)
         self.attn = Attention(
             dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop, is_causal=is_causal, use_rope=use_rope, return_attention=return_attention)
@@ -1225,11 +1291,9 @@ class Block(nn.Module):
 
     def forward(self, x, freqs=None):
         y = self.attn(self.norm1(x), freqs)
-        print("y: ", y)
         if self.return_attention:
             return y
         x = x + self.drop_path(y)
-        print("x: ", x)
         x = x + self.drop_path(self.mlp(self.norm2(x)))
         return x
 
@@ -1414,6 +1478,7 @@ class EEGTransformer(nn.Module):
             patch_stride=patch_stride,
             embed_dim=embed_dim)
         self.num_patches = self.patch_embed.num_patches
+        print("num_patches is....:",  self.num_patches)
         # --
 
         self.chan_embed = nn.Embedding(len(CHANNEL_DICT), embed_dim)
@@ -1491,8 +1556,11 @@ class EEGTransformer(nn.Module):
         # mask_x.shape mN, mC
         # mask_t.shape mN
 
+        print("Before patch_embed:", x.shape) #([256, 54, 1024])
+
         # -- patchify x
         x = self.patch_embed(x)
+        print("After patch_embed:", x.shape) #([256, 16, 54, 512])
         B, N, C, D = x.shape
 
         assert N == self.num_patches[1] and C == self.num_patches[
@@ -1658,7 +1726,8 @@ class EEGPTClassifier(nn.Module):
             init_std=0.02,
             qkv_bias=True,
             norm_layer=partial(nn.LayerNorm, eps=1e-6))
-
+        
+        print("num patches: ", target_encoder.num_patches)
         print("made reconstructor")
         self.target_encoder = target_encoder
         self.reconstructor = reconstructor
@@ -1715,18 +1784,21 @@ class EEGPTClassifier(nn.Module):
 
         x = self.forward_features(
             x, chan_ids=chan_ids, return_patch_tokens=return_patch_tokens, return_all_tokens=return_all_tokens, **kwargs)
-        # print(x.shape)
-
-        # x = x.flatten(2)
-        # x = x[:,:,0]
-        # x = self.act(self.head_0(x))
-
         x = x.flatten(1)
         x = self.head(x)
         return x
 
     def load_state_dict(self, state_dict, strict: bool = False):
         return super().load_state_dict(state_dict, strict)
+    
+
+def getOutput(name, outputsss):
+    # the hook signature
+    def hook(model, input, output):
+        print("in da hook mateyy")
+        print("Output shape:", output.shape)
+        outputsss[name] = output.detach()
+    return hook
     
 try:
     from apex.optimizers import FusedNovoGrad, FusedAdam, FusedLAMB, FusedSGD

@@ -16,33 +16,13 @@ import torchvision
 from pytorch_lightning import loggers as pl_loggers
 
 
-from unified.utils import WarmupCosineSchedule, CosineWDSchedule, grad_logger
+from utils import WarmupCosineSchedule, CosineWDSchedule, grad_logger
 from modeling_pretraining import EEGTransformer, EEGTransformerPredictor, EEGTransformerReconstructor, apply_mask
 from configs import *
 # -- use channels for model
 
-# use_channels_names = ['FP1', 'FPZ', 'FP2',
-#                       'AF3', 'AF4',
-#                       'F7', 'F5', 'F3', 'F1', 'FZ', 'F2', 'F4', 'F6', 'F8',
-#                       'FT7', 'FC5', 'FC3', 'FC1', 'FCZ', 'FC2', 'FC4', 'FC6', 'FT8',
-#                       'T7', 'C5', 'C3', 'C1', 'CZ', 'C2', 'C4', 'C6', 'T8',
-#                       'TP7', 'CP5', 'CP3', 'CP1', 'CPZ', 'CP2', 'CP4', 'CP6', 'TP8',
-#                       'P7', 'P5', 'P3', 'P1', 'PZ', 'P2', 'P4', 'P6', 'P8',
-#                       'PO7', 'PO3', 'POZ',  'PO4', 'PO8',
-#                       'O1', 'OZ', 'O2', ]
-
-use_channels_names = ['E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E9', 'E10',
-                      'E11', 'E12', 'E13', 'E15', 'E16', 'E18', 'E19', 'E20', 'E22',
-                      'E23', 'E24', 'E26', 'E27', 'E28', 'E29', 'E30', 'E31', 'E33',
-                      'E34', 'E35', 'E36', 'E37', 'E39', 'E40', 'E41', 'E42', 'E45',
-                      'E46', 'E47', 'E50', 'E51', 'E52', 'E53', 'E54', 'E55', 'E57',
-                      'E58', 'E59', 'E60', 'E61', 'E62', 'E63', 'E64', 'E65', 'E66',
-                      'E67', 'E69', 'E70', 'E71', 'E72', 'E74', 'E75', 'E76', 'E77',
-                      'E78', 'E79', 'E80', 'E82', 'E83', 'E84', 'E85', 'E86', 'E87',
-                      'E89', 'E90', 'E91', 'E92', 'E93', 'E95', 'E96', 'E97', 'E98',
-                      'E100', 'E101', 'E102', 'E103', 'E104', 'E105', 'E106', 'E108',
-                      'E109', 'E110', 'E111', 'E112', 'E115', 'E116', 'E117', 'E118',
-                      'E122', 'E123', 'E124']
+use_channels_names = ['PZ', 'C2', 'P5', 'P6', 'TP8', 'C5', 'FC4', 'FT7', 'AF4', 'POZ', 'F6', 'TP7', 'PO7', 'PO4', 'O2', 'F8', 'F4', 'T7', 'CP6', 'PO8', 'C3', 'CP1', 'CP4', 'F3', 'OZ', 'FC3',
+                      'FT8', 'F7', 'FP2', 'PO3', 'P4', 'F5', 'FC2', 'P2', 'AF3', 'CPZ', 'F2', 'CP5', 'FP1', 'FC1', 'P1', 'FZ', 'FPZ', 'CP3', 'O1', 'P3', 'C6', 'FC6', 'C4', 'F1', 'CP2', 'FCZ', 'FC5', 'C1']
 
 
 class LitEEGPT(pl.LightningModule):
@@ -54,8 +34,8 @@ class LitEEGPT(pl.LightningModule):
         self.USE_SKIP = USE_SKIP
 
         encoder = EEGTransformer(
-            img_size=[99, 1000*2],
-            patch_size=32*2,
+            img_size=[54, 1024],
+            patch_size=64,
             mlp_ratio=4.0,
             drop_rate=0.0,
             attn_drop_rate=0.0,
@@ -97,13 +77,18 @@ class LitEEGPT(pl.LightningModule):
         self.target_encoder = target_encoder
         self.predictor = predictor
         self.reconstructor = reconstructor
+        print("before prepare_chan_ids: ", use_channels_names)
         self.chans_id = encoder.prepare_chan_ids(use_channels_names)
+        print("after prepare_chan_ids, self.chans_id is length: ",
+              len(self.chans_id[0]))
 
         self.loss_fn = torch.nn.MSELoss()
 
     def make_masks(self, num_patchs, mC_x=12, p_n_y=0.5, p_c_y=0.2):
-
+        print("in make_masks...")
         C, N = num_patchs
+        print("C: ", C)
+        print("N: ", N)
 
         while True:
             mask_x = []  # mN, mC
@@ -133,16 +118,19 @@ class LitEEGPT(pl.LightningModule):
             h = self.target_encoder(x, self.chans_id.to(x))
             h = F.layer_norm(h, (h.size(-1),))  # normalize over feature-dim
             C, N = self.encoder.num_patches
-            print("x.shape[-1]", x.shape[-1])  # 2000
-            print("x.shape[-2]",  x.shape[-2])  # 99
-            print("N: ", N)  # 31 -> number of patches -> 2000/99 = 31
-            print("C: ", C)  # 99
+            print("x.shape[-1]", x.shape[-1])
+            print("x.shape[-2]",  x.shape[-2])
+            print("N: ", N)
+            print("C: ", C)
+            print("x shape as input: ", x.shape)
             assert x.shape[-1] % N == 0 and x.shape[-2] % C == 0
             block_size_c, block_size_n = x.shape[-2]//C, x.shape[-1]//N
             x = x.view(x.shape[0], C, block_size_c, N, block_size_n)
             x = x.permute(0, 3, 1, 2, 4).contiguous()  # B, N, C, bc, bn
             x = x.view(x.shape[0], C, N, block_size_c * block_size_n)
+            print("x shape before apply_mask is: ", x.shape)
             y = apply_mask(mask_y.to(x.device), x)
+            print("y shape in forward target is: ", y.shape)
             if self.USE_LN:
                 y = F.layer_norm(y, (y.size(-1),))
             return h, y
@@ -158,8 +146,11 @@ class LitEEGPT(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         x, _ = batch
         mask_x, mask_y = self.make_masks(self.encoder.num_patches)
+        print("x shape here in validation_step is: ", x.shape)
         h, y = self.forward_target(x, mask_y)
+        print("Output y shape:", y.shape)
         z, r = self.forward_context(x, mask_x, mask_y)
+        print("Output r shape:", r.shape)
         loss1 = self.loss_fn(h, z)
         loss2 = self.loss_fn(y, r)
         if self.USE_LOSS_A:
@@ -179,6 +170,7 @@ class LitEEGPT(pl.LightningModule):
         return loss
 
     def training_step(self, batch, batch_idx):
+        # first method called after .fit() in run_pretraining
         x, _ = batch
         mask_x, mask_y = self.make_masks(self.encoder.num_patches)
         h, y = self.forward_target(x, mask_y)
