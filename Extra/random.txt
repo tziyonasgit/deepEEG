@@ -21,6 +21,7 @@ pip install .
 check if running an interactive job:
 squeue -u $USER
 
+squeue -u $USER
 
 
 accessing tensorboard log:
