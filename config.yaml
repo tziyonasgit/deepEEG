@@ -1,0 +1,9 @@
+program: /home/chntzi001/deepEEG/EEGPT/pretrain/run_pretraining_EEGPT.py
+project: scratch_deepEEG
+method: grid
+metric:
+  goal: maximize
+  name: accuracy
+parameters:
+  lr:
+    values: [0.00001, 0.00002, 0.00003, 0.00004]

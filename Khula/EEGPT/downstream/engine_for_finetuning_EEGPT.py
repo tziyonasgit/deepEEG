@@ -21,8 +21,10 @@ import wandb
 import os
 theOutputs = {}
 
+
 def getVarOutputs():
     return theOutputs
+
 
 def train_class_batch(model, samples, target, criterion, ch_names):
     outputs = model(samples)
@@ -53,7 +55,6 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     header = 'Epoch: [{}]'.format(epoch)
     print_freq = 10
 
-
     if loss_scaler is None:
         model.zero_grad()
         model.micro_steps = 0
@@ -76,6 +77,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
         samples = samples.float().to(device, non_blocking=True) / 100
         samples = rearrange(samples, 'B N (A T) -> B N A T', T=64)
+        numPatches = samples.shape[2]
         targets = targets.to(device, non_blocking=True)
         if is_binary:
             targets = targets.float().unsqueeze(-1)
@@ -88,13 +90,13 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             with torch.amp.autocast(device_type='cuda'):
                 loss, output = train_class_batch(
                     model, samples, targets, criterion, input_chans)
-        
-        print("outputsss['penultimate']",theOutputs['penultimate'])
-        print("outputsss['penultimate'].shape", theOutputs['penultimate'].shape) # shape is [4096, 4, 512]
+
         features = theOutputs['penultimate']
-        features = features.view(128, 16, 4, 512)
+        features = features.view(128, numPatches, 4, 512)
         features_flat = features.mean(dim=(1, 2))
         labels_flat = targets
+        theOutputs.clear()
+        torch.cuda.empty_cache()
 
         loss_value = loss.item()
 

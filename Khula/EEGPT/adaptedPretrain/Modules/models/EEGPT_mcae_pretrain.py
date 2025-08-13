@@ -18,8 +18,8 @@ logger = getLogger()
 
 
 # CHANNEL_DICT will be the same as channel ordering in the input data
-CHANNEL_DICT = {k.upper(): v for v, k in enumerate(['AF4', 'F2', 'FCZ', 'FP2', 'FZ', 'FC1', 'FPZ', 'F1', 'FP1', 'AF3', 'F3', 'F5', 'FC5', 'FC3', 'C1', 'F7', 'FT7', 'C3', 'CP1', 'C5', 'CP3', 'T7', 'TP7', 'CP5', 'P5',
-                                                    'P3', 'CPZ', 'P1', 'PZ', 'PO7', 'PO3', 'O1', 'POZ', 'OZ', 'PO4', 'O2', 'P2', 'CP2', 'PO8', 'P4', 'CP4', 'P6', 'CP6', 'TP8', 'C6', 'C4', 'C2', 'FC4', 'FC2', 'FT8', 'FC6', 'F8', 'F6', 'F4']
+CHANNEL_DICT = {k.upper(): v for v, k in enumerate(['FPZ', 'FP2', 'AF3', 'AF4', 'F7', 'F3', 'F1', 'FZ', 'F2', 'F4', 'F8', 'FT7', 'FC5', 'FC3', 'FC1', 'FCZ', 'FC2', 'FC4', 'FC6', 'FT8', 'T7', 'C5', 'C3', 'C1', 'C2', 'C4',
+                                                    'C6', 'T8', 'TP7', 'CP5', 'CP3', 'CP1', 'CPZ', 'CP2', 'CP4', 'CP6', 'TP8', 'P7', 'P5', 'P3', 'P1', 'PZ', 'P2', 'P4', 'P6', 'P8', 'PO7', 'PO3', 'POZ', 'PO4', 'PO8', 'O1', 'OZ', 'O2']
                                                    )}
 
 ################################# Utils ######################################
@@ -752,19 +752,25 @@ class EEGPTClassifier(nn.Module):
         self.reconstructor = reconstructor
         self.chans_id = target_encoder.prepare_chan_ids(use_channels_names)
 
-        embed_dim = 512
+        embed_dim = 64
+        embed_num = 1
+        self.embed_num = embed_num
         self.embed_dim = embed_dim
         self.norm = nn.Identity() if use_mean_pooling else norm_layer(embed_dim)
         self.fc_norm = norm_layer(embed_dim) if use_mean_pooling else None
-
+        numPatches = target_encoder.num_patches[1]
         # self.head_0 = LinearWithConstraint(4*self.embed_dim, 16) if num_classes > 0 else nn.Identity()
         # self.act = nn.ReLU()
+        print("!@@@@@@@!##$$%$$$% embed_dim: ", self.embed_dim)
+        print("number of pacthes isssss: ", numPatches)
+        print("=================================")
         self.head = nn.Sequential(
             # nn.Linear(4*self.embed_dim*31,256),
             # nn.ReLU(),
             nn.Dropout(0.8),
             # LinearWithConstraint(4*self.embed_dim*40, num_classes)
-            LinearWithConstraint(32768, num_classes),
+            LinearWithConstraint(
+                self.embed_num*self.embed_dim*numPatches, num_classes),
             # nn.Dropout(0.25),
             # nn.Linear(4*self.embed_dim*31, num_classes)
         )
@@ -811,13 +817,9 @@ class EEGPTClassifier(nn.Module):
 
         x = self.forward_features(
             x, chan_ids=chan_ids, return_patch_tokens=return_patch_tokens, return_all_tokens=return_all_tokens, **kwargs)
-        # print(x.shape)
-
-        # x = x.flatten(2)
-        # x = x[:,:,0]
-        # x = self.act(self.head_0(x))
-
+        print("ENC OUT (before flatten):", x.shape)
         x = x.flatten(1)
+        print("##################DEBUG:", x.shape)
         x = self.head(x)
         return x
 
@@ -826,10 +828,10 @@ class EEGPTClassifier(nn.Module):
 
 
 if __name__ == "__main__":
-    use_channels_names = ['AF4', 'F2', 'FCZ', 'FP2', 'FZ', 'FC1', 'FPZ', 'F1', 'FP1', 'AF3', 'F3', 'F5', 'FC5', 'FC3', 'C1', 'F7', 'FT7', 'C3', 'CP1', 'C5', 'CP3', 'T7', 'TP7', 'CP5', 'P5',
-                          'P3', 'CPZ', 'P1', 'PZ', 'PO7', 'PO3', 'O1', 'POZ', 'OZ', 'PO4', 'O2', 'P2', 'CP2', 'PO8', 'P4', 'CP4', 'P6', 'CP6', 'TP8', 'C6', 'C4', 'C2', 'FC4', 'FC2', 'FT8', 'FC6', 'F8', 'F6', 'F4']
-    ch_names = ['AF4', 'F2', 'FCZ', 'FP2', 'FZ', 'FC1', 'FPZ', 'F1', 'FP1', 'AF3', 'F3', 'F5', 'FC5', 'FC3', 'C1', 'F7', 'FT7', 'C3', 'CP1', 'C5', 'CP3', 'T7', 'TP7', 'CP5', 'P5',
-                'P3', 'CPZ', 'P1', 'PZ', 'PO7', 'PO3', 'O1', 'POZ', 'OZ', 'PO4', 'O2', 'P2', 'CP2', 'PO8', 'P4', 'CP4', 'P6', 'CP6', 'TP8', 'C6', 'C4', 'C2', 'FC4', 'FC2', 'FT8', 'FC6', 'F8', 'F6', 'F4']
+    use_channels_names = ['FPZ', 'FP2', 'AF3', 'AF4', 'F7', 'F3', 'F1', 'FZ', 'F2', 'F4', 'F8', 'FT7', 'FC5', 'FC3', 'FC1', 'FCZ', 'FC2', 'FC4', 'FC6', 'FT8', 'T7', 'C5', 'C3', 'C1', 'C2',
+                          'C4', 'C6', 'T8', 'TP7', 'CP5', 'CP3', 'CP1', 'CPZ', 'CP2', 'CP4', 'CP6', 'TP8', 'P7', 'P5', 'P3', 'P1', 'PZ', 'P2', 'P4', 'P6', 'P8', 'PO7', 'PO3', 'POZ', 'PO4', 'PO8', 'O1', 'OZ', 'O2']
+    ch_names = ['FPZ', 'FP2', 'AF3', 'AF4', 'F7', 'F3', 'F1', 'FZ', 'F2', 'F4', 'F8', 'FT7', 'FC5', 'FC3', 'FC1', 'FCZ', 'FC2', 'FC4', 'FC6', 'FT8', 'T7', 'C5', 'C3', 'C1', 'C2', 'C4',
+                'C6', 'T8', 'TP7', 'CP5', 'CP3', 'CP1', 'CPZ', 'CP2', 'CP4', 'CP6', 'TP8', 'P7', 'P5', 'P3', 'P1', 'PZ', 'P2', 'P4', 'P6', 'P8', 'PO7', 'PO3', 'POZ', 'PO4', 'PO8', 'O1', 'OZ', 'O2']
     model = EEGPTClassifier(4, in_channels=len(ch_names), img_size=[len(
         use_channels_names), 1024], use_channels_names=use_channels_names, use_chan_conv=True)
 

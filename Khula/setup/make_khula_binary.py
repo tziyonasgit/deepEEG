@@ -7,64 +7,6 @@ import pickle
 import re
 import multiprocessing
 
-# egi_to_1020 = {
-#     'E3': 'AF4',
-#     'E4': 'F2',
-#     'E6': 'FCZ',
-#     'E9': 'FP2',
-#     'E11': 'FZ',
-#     'E13': 'FC1',
-#     'E15': 'FPZ',
-#     'E19': 'F1',
-#     'E22': 'FP1',
-#     'E23': 'AF3',
-#     'E24': 'F3',
-#     'E27': 'F5',
-#     'E28': 'FC5',
-#     'E29': 'FC3',
-#     'E30': 'C1',
-#     'E33': 'F7',
-#     'E34': 'FT7',
-#     'E36': 'C3',
-#     'E37': 'CP1',
-#     'E41': 'C5',
-#     'E42': 'CP3',
-#     'E45': 'T7',
-#     'E46': 'TP7',
-#     'E47': 'CP5',
-#     'E51': 'P5',
-#     'E52': 'P3',
-#     'E55': 'CPZ',
-#     'E60': 'P1',
-#     'E62': 'PZ',
-#     'E65': 'PO7',
-#     'E67': 'PO3',
-#     'E70': 'O1',
-#     'E72': 'POZ',
-#     'E75': 'OZ',
-#     'E77': 'PO4',
-#     'E83': 'O2',
-#     'E85': 'P2',
-#     'E87': 'CP2',
-#     'E90': 'PO8',
-#     'E92': 'P4',
-#     'E93': 'CP4',
-#     'E97': 'P6',
-#     'E98': 'CP6',
-#     'E102': 'TP8',
-#     'E103': 'C6',
-#     'E104': 'C4',
-#     'E105': 'C2',
-#     'E111': 'FC4',
-#     'E112': 'FC2',
-#     'E116': 'FT8',
-#     'E117': 'FC6',
-#     'E122': 'F8',
-#     'E123': 'F6',
-#     'E124': 'F4'
-# }
-
-
 egi_to_1020 = {
     'E3': 'AF4',
     'E4': 'F2',
@@ -230,55 +172,75 @@ if __name__ == "__main__":
 
     # eeg recording file name e.g. 1_191_14933186_12_T_20230720_011457002_processed.set
 
-    with open("train.txt") as f:
+    with open("trainBin.txt") as f:
         train_files = [line.strip() for line in f]
 
-    with open("val.txt") as f:
+    with open("valBin.txt") as f:
         val_files = [line.strip() for line in f]
 
-    with open("test.txt") as f:
+    with open("testBin.txt") as f:
         test_files = [line.strip() for line in f]
 
     # create the train, val, test sample folder
-    if not os.path.exists(os.path.join(root, "processed")):
-        os.makedirs(os.path.join(root, "processed"))
+    if not os.path.exists(os.path.join(root, "processedBinary")):
+        os.makedirs(os.path.join(root, "processedBinary"))
 
-    if not os.path.exists(os.path.join(root, "processed", "train")):
-        os.makedirs(os.path.join(root, "processed", "train"))
-    train_dump_folder = os.path.join(root, "processed", "train")
+    if not os.path.exists(os.path.join(root, "processedBinary", "train")):
+        os.makedirs(os.path.join(root, "processedBinary", "train"))
+    train_dump_folder = os.path.join(root, "processedBinary", "train")
 
-    if not os.path.exists(os.path.join(root, "processed", "val")):
-        os.makedirs(os.path.join(root, "processed", "val"))
-    val_dump_folder = os.path.join(root, "processed", "val")
+    if not os.path.exists(os.path.join(root, "processedBinary", "val")):
+        os.makedirs(os.path.join(root, "processedBinary", "val"))
+    val_dump_folder = os.path.join(root, "processedBinary", "val")
 
-    if not os.path.exists(os.path.join(root, "processed", "test")):
-        os.makedirs(os.path.join(root, "processed", "test"))
-    test_dump_folder = os.path.join(root, "processed", "test")
+    if not os.path.exists(os.path.join(root, "processedBinary", "test")):
+        os.makedirs(os.path.join(root, "processedBinary", "test"))
+    test_dump_folder = os.path.join(root, "processedBinary", "test")
 
     # fetch_folder, sub, dump_folder, labels
     parameters = []
 
+    label = None
     for train_sub in train_files:
         train_sub_src, train_dump_folder = splitSrcDest(train_sub)
-        match = re.search(r'_(3|6|12|24)_', train_sub_src)
-        parameters.append(
-            [train_sub_src, train_dump_folder, match.group(1)])
+        print(f"train_sub_src: {train_sub_src}")
+        match = re.search(r'_(3|24)_', train_sub_src)
+        if match.group(1) in ['3']:
+            label = 0
+        elif match.group(1) in ['24']:
+            label = 1
+        if label is not None:
+            parameters.append(
+                [train_sub_src, train_dump_folder, label])
+        else:
+            raise ValueError(
+                f"Failed to extract session from: {train_sub_src}")
 
     for val_sub in val_files:
         val_sub_src, val_dump_folder = splitSrcDest(val_sub)
-        match = re.search(r'_(3|6|12|24)_', val_sub_src)
-        if match:
-            session = match.group(1)
+        match = re.search(r'_(3|24)_', val_sub_src)
+        if match.group(1) in ['3']:
+            label = 0
+        elif match.group(1) in ['24']:
+            label = 1
+        if label is not None:
             parameters.append(
-                [val_sub_src, val_dump_folder, session])
+                [val_sub_src, val_dump_folder, label])
         else:
             raise ValueError(f"Failed to extract session from: {val_sub_src}")
 
     for test_sub in test_files:
         test_sub_src, test_dump_folder = splitSrcDest(test_sub)
-        match = re.search(r'_(3|6|12|24)_', test_sub_src)
-        parameters.append(
-            [test_sub_src, test_dump_folder, match.group(1)])
+        match = re.search(r'_(3|24)_', test_sub_src)
+        if match.group(1) in ['3']:
+            label = 0
+        elif match.group(1) in ['24']:
+            label = 1
+        if label is not None:
+            parameters.append(
+                [test_sub_src, test_dump_folder, label])
+        else:
+            raise ValueError(f"Failed to extract session from: {test_sub_src}")
 
     # split and dump in parallel
     with multiprocessing.Pool(processes=24) as pool:

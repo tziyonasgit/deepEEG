@@ -181,6 +181,7 @@ def get_args():
     parser.add_argument('--dataset', default='KHULA', type=str,
                         help='dataset: TUAB | TUEV')
 
+    parser.add_argument('--samplelength', default=4, type=int)
     known_args, _ = parser.parse_known_args()
 
     if known_args.enable_deepspeed:
@@ -200,14 +201,20 @@ def get_args():
 
 def get_models(args):
 
-    use_channels_names = ['F3', 'FP2', 'FT7', 'FC4', 'FZ', 'P5', 'FC2', 'C3', 'F8', 'F2', 'C6', 'AF4', 'P1', 'CPZ', 'FP1', 'FC1', 'P2', 'F4', 'PO8', 'FC5', 'OZ', 'C4', 'TP7', 'PZ', 'PO3', 'F7',
-                          'F6', 'FPZ', 'FC3', 'CP2', 'PO7', 'F5', 'P4', 'PO4', 'CP5', 'O2', 'FC6', 'C1', 'CP3', 'C2', 'CP1', 'TP8', 'FCZ', 'T7', 'P3', 'C5', 'CP4', 'P6', 'O1', 'AF3', 'FT8', 'CP6', 'POZ', 'F1']
-    ch_names = ['F3', 'FP2', 'FT7', 'FC4', 'FZ', 'P5', 'FC2', 'C3', 'F8', 'F2', 'C6', 'AF4', 'P1', 'CPZ', 'FP1', 'FC1', 'P2', 'F4', 'PO8', 'FC5', 'OZ', 'C4', 'TP7', 'PZ', 'PO3', 'F7',
-                'F6', 'FPZ', 'FC3', 'CP2', 'PO7', 'F5', 'P4', 'PO4', 'CP5', 'O2', 'FC6', 'C1', 'CP3', 'C2', 'CP1', 'TP8', 'FCZ', 'T7', 'P3', 'C5', 'CP4', 'P6', 'O1', 'AF3', 'FT8', 'CP6', 'POZ', 'F1']
+    use_channels_names = ['FPZ', 'FP2', 'AF3', 'AF4', 'F7', 'F3', 'F1', 'FZ', 'F2', 'F4', 'F8', 'FT7', 'FC5', 'FC3', 'FC1', 'FCZ', 'FC2', 'FC4', 'FC6', 'FT8', 'T7', 'C5', 'C3', 'C1', 'C2', 'C4',
+                          'C6', 'T8', 'TP7', 'CP5', 'CP3', 'CP1', 'CPZ', 'CP2', 'CP4', 'CP6', 'TP8', 'P7', 'P5', 'P3', 'P1', 'PZ', 'P2', 'P4', 'P6', 'P8', 'PO7', 'PO3', 'POZ', 'PO4', 'PO8', 'O1', 'OZ', 'O2']
+    ch_names = ['FPZ', 'FP2', 'AF3', 'AF4', 'F7', 'F3', 'F1', 'FZ', 'F2', 'F4', 'F8', 'FT7', 'FC5', 'FC3', 'FC1', 'FCZ', 'FC2', 'FC4', 'FC6', 'FT8', 'T7', 'C5', 'C3', 'C1', 'C2', 'C4',
+                'C6', 'T8', 'TP7', 'CP5', 'CP3', 'CP1', 'CPZ', 'CP2', 'CP4', 'CP6', 'TP8', 'P7', 'P5', 'P3', 'P1', 'PZ', 'P2', 'P4', 'P6', 'P8', 'PO7', 'PO3', 'POZ', 'PO4', 'PO8', 'O1', 'OZ', 'O2']
+
+    if args.samplelength == 4:
+        timepoints = 1024
+    else:
+        timepoints = 2560
+
     model = EEGPTClassifier(
         num_classes=args.nb_classes,
         in_channels=len(ch_names),
-        img_size=[len(use_channels_names), 1024],
+        img_size=[len(use_channels_names), timepoints],
         use_channels_names=use_channels_names,
         use_chan_conv=True,
         use_mean_pooling=args.use_mean_pooling, logdir=args.log_dir)
@@ -224,16 +231,18 @@ def get_dataset(args):
         print("Preparing KHULA dataset...")
         if args.nb_classes > 1:
             filepath = "/scratch/chntzi001/khula/processed/"
+            args.nb_classes = 4
+            metrics = ["accuracy", "balanced_accuracy",
+                       "cohen_kappa", "f1_weighted"]
         else:
             filepath = "/scratch/chntzi001/khula/processedBinary/"
+            args.nb_classes = 1
+            metrics = ["pr_auc", "roc_auc", "accuracy", "balanced_accuracy"]
         train_dataset, test_dataset, val_dataset = utils.prepare_KHULA_dataset(
             filepath, args.nb_classes)
 
-        ch_names = ['F3', 'FP2', 'FT7', 'FC4', 'FZ', 'P5', 'FC2', 'C3', 'F8', 'F2', 'C6', 'AF4', 'P1', 'CPZ', 'FP1', 'FC1', 'P2', 'F4', 'PO8', 'FC5', 'OZ', 'C4', 'TP7', 'PZ', 'PO3', 'F7',
-                    'F6', 'FPZ', 'FC3', 'CP2', 'PO7', 'F5', 'P4', 'PO4', 'CP5', 'O2', 'FC6', 'C1', 'CP3', 'C2', 'CP1', 'TP8', 'FCZ', 'T7', 'P3', 'C5', 'CP4', 'P6', 'O1', 'AF3', 'FT8', 'CP6', 'POZ', 'F1']
-        args.nb_classes = 4
-        metrics = ["accuracy", "balanced_accuracy",
-                   "cohen_kappa", "f1_weighted"]
+        ch_names = ['FPZ', 'FP2', 'AF3', 'AF4', 'F7', 'F3', 'F1', 'FZ', 'F2', 'F4', 'F8', 'FT7', 'FC5', 'FC3', 'FC1', 'FCZ', 'FC2', 'FC4', 'FC6', 'FT8', 'T7', 'C5', 'C3', 'C1', 'C2', 'C4',
+                    'C6', 'T8', 'TP7', 'CP5', 'CP3', 'CP1', 'CPZ', 'CP2', 'CP4', 'CP6', 'TP8', 'P7', 'P5', 'P3', 'P1', 'PZ', 'P2', 'P4', 'P6', 'P8', 'PO7', 'PO3', 'POZ', 'PO4', 'PO8', 'O1', 'OZ', 'O2']
 
     return train_dataset, test_dataset, val_dataset, ch_names, metrics
 
@@ -244,6 +253,7 @@ def write_args_to_file(args, output_dir):
         f.write(
             f"date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"name of run: {run_name}\n")
+        f.write(f"sample length: {args.samplelength}\n")
         f.write(f"----------- main hyperparameters: -----------\n")
         f.write(f"batch_size: {args.batch_size}\n")
         f.write(f"epochs: {args.epochs}\n")
@@ -342,12 +352,12 @@ def main(args, ds_init):
     else:
         classification = "binary"
 
-    args.output_dir = f"/scratch/chntzi001/khula/checkpoints/finetune_khula_eegpt/{classification}/09-08/{run_name}/run1"
+    args.output_dir = f"/scratch/chntzi001/khula/checkpoints/finetune_khula_eegpt/{classification}/13-08/{run_name}/run1"
     output_dir = args.output_dir
-    args.log_dir = f"/home/chntzi001/deepEEG/EEGPT/downstream/log/{classification}/09-08/{run_name}/run1"
+    args.log_dir = f"/home/chntzi001/deepEEG/EEGPT/downstream/log/{classification}/13-08/{run_name}/run1"
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(args.log_dir, exist_ok=True)
-    tsneplots = f"/scratch/chntzi001/khula/checkpoints/finetune_khula_eegpt/{classification}/09-08/{run_name}/run1/tsne_plots"
+    tsneplots = f"/scratch/chntzi001/khula/checkpoints/finetune_khula_eegpt/{classification}/13-08/{run_name}/run1/tsne_plots"
     os.makedirs(tsneplots, exist_ok=True)
     args.finetune = "/home/chntzi001/deepEEG/EEGPT/downstream/Checkpoints/eegpt_mcae_58chs_4s_large4E.ckpt"
     write_args_to_file(args, output_dir)
@@ -642,27 +652,29 @@ def main(args, ds_init):
         if isinstance(lbls, list):
             lbls = torch.cat(lbls, dim=0)
         features_2d = tsne.fit_transform(feats.cpu().numpy())
-        unique_labels = np.unique(lbls.cpu().numpy())
+        lbls = lbls.cpu().numpy()
+        unique_labels = np.unique(lbls)
         age = {0: '3M', 1: '6M', 2: '12M', 3: '24M'}
+        label_to_color = {0: '#800080',
+                          2: '#5959ED', 3: '#0ABA0A', 4: '#000000'}
         colours = ['#800080',
-                   "#5959EDFF",
+                   "#5959ED",
                    "#0ABA0A",
                    '#000000']
-        kmeans = KMeans(n_clusters=4, random_state=0)
-        clusters = kmeans.fit_predict(features_2d)
 
         plt.figure(figsize=(8, 6))
-        # cluster-wise colouring
-        for cluster_id in np.unique(clusters):
-            idx = clusters == cluster_id
+        print("lbls: ", lbls)
+        # label-wise colouring
+        for i, label in enumerate(unique_labels):
+            idx = (lbls == label)
             plt.scatter(
                 features_2d[idx, 0], features_2d[idx, 1],
-                color=colours[cluster_id],
+                color=label_to_color[i],
                 s=20, alpha=0.7,
-                label=f"Cluster {cluster_id}"
+                label=f'Age {age.get(int(label), str(label))}'
             )
-        plt.title("k=4")
-        plt.legend(title="Cluster ID", loc="best")
+        plt.title("TSNE plot for epoch %d" % epoch)
+        plt.legend(title="Age group", loc="best")
         plt.grid(True)
         filename = f"tsne_epoch{epoch}.png"
         plotpath = os.path.join(tsneplots, filename)
@@ -670,7 +682,12 @@ def main(args, ds_init):
         plt.close()
 
         # logging stats of clusters (via csv)
-        cluster_ids = clusters
+        if args.nb_classes > 1:
+            n_clusters = 4
+        else:
+            n_clusters = 2
+        kmeans = KMeans(n_clusters=n_clusters, random_state=0)
+        cluster_ids = kmeans.fit_predict(features_2d)
         true_labels = lbls.cpu().numpy()
         distribution = defaultdict(lambda: defaultdict(int))
         for cluster_id, true_label in zip(cluster_ids, true_labels):
@@ -680,8 +697,12 @@ def main(args, ds_init):
             writer = csv.writer(file)
             for cluster_id, label_counts in distribution.items():
                 clusterID = f"{epoch}_{cluster_id}"
-                writer.writerow([clusterID, label_counts.get(0, 0), label_counts.get(1, 0),
-                                 label_counts.get(2, 0), label_counts.get(3, 0)])
+                if args.nb_classes > 1:
+                    writer.writerow([clusterID, label_counts.get(0, 0), label_counts.get(1, 0),
+                                     label_counts.get(2, 0), label_counts.get(3, 0)])
+                else:
+                    writer.writerow(
+                        [clusterID, label_counts.get(0, 0), label_counts.get(1, 0)])
 
         if args.sweep:
             wandb.log({f"train/{k}": v for k, v in train_stats.items()}

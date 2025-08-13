@@ -1,3 +1,7 @@
+from torchviz import make_dot
+import matplotlib.pyplot as plt
+from sklearn.manifold import TSNE
+import torch.distributed as dist
 import torch
 import numpy as np
 import os
@@ -35,10 +39,7 @@ import datetime
 from functools import partial
 from logging import getLogger
 logger = getLogger()
-import torch.distributed as dist
 outputsss = {}
-from sklearn.manifold import TSNE
-import matplotlib.pyplot as plt
 
 standard_1020 = [
     'FP1', 'FPZ', 'FP2',
@@ -57,6 +58,7 @@ standard_1020 = [
     "FP1-F7", "F7-T7", "T7-P7", "P7-O1", "FP2-F8", "F8-T8", "T8-P8", "P8-O2", "FP1-F3", "F3-C3", "C3-P3", "P3-O1", "FP2-F4", "F4-C4", "C4-P4", "P4-O2"
 ]
 
+
 def main(args):
 
     if torch.cuda.is_available():
@@ -74,12 +76,6 @@ def main(args):
     with open(output_csv, mode='w', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(["Prediction", "True Label"])
-        
-        
-    direc = 'results/'
-    X = np.load("data/X_pc.npy")
-    y = np.load("data/y_pc.npy")
-    wrapper(direc, X, y)
 
     sampler_train = torch.utils.data.SequentialSampler(
         dataset_train)
@@ -90,51 +86,48 @@ def main(args):
     log_writer = TensorboardLogger(log_dir=args.log_dir)
     os.makedirs("tsne_plots", exist_ok=True)
 
-    
     print("Setting up training dataset")
     data_loader_train = torch.utils.data.DataLoader(
-            dataset_train, sampler=sampler_train,
-            batch_size=args.batch_size,
-            drop_last=True,
-        )
+        dataset_train, sampler=sampler_train,
+        batch_size=args.batch_size,
+        drop_last=True,
+    )
     print("Setting up validation dataset")
     data_loader_val = torch.utils.data.DataLoader(
-            dataset_val, sampler=sampler_val,
-            batch_size=int(1.5 * args.batch_size),
-            drop_last=False
-        )
+        dataset_val, sampler=sampler_val,
+        batch_size=int(1.5 * args.batch_size),
+        drop_last=False
+    )
     print("Setting up test dataset")
     data_loader_test = torch.utils.data.DataLoader(
-                dataset_test, sampler=sampler_test,
-                batch_size=int(1.5 * args.batch_size),
-                drop_last=False
-            )
+        dataset_test, sampler=sampler_test,
+        batch_size=int(1.5 * args.batch_size),
+        drop_last=False
+    )
 
     model = get_models(args)
-    layers = list(model.children())
-    
-    print(layers)
-    print(layers[-2])
-   
-    h = model.target_encoder.norm.register_forward_hook(getOutput('penultimate', outputsss))
-    print("target_encoder: ",model.target_encoder)
-    print("heyyyy: ",model.fc_norm)
-    patch_size = 64  
+    print("model: ", model)
+    # Generate the visualization
+    dot = make_dot(output, params=dict(model.named_parameters()))
+    dot.render("model_architecture", format="png",
+               view=True)  # Saves as PNG and opens
+
+    patch_size = 64
     window_size = (1, args.input_size // patch_size)
     print("patch_size: ", patch_size)
     print("window_size: ", window_size)
-    
+
     checkpoint = torch.load(
-                args.finetune, map_location='cpu', weights_only=False)
+        args.finetune, map_location='cpu', weights_only=False)
     print("================== Loading checkpoint =================")
     print("Load ckpt from %s" % args.finetune)
     checkpoint_model = checkpoint['state_dict']
     load_state_dict(model, checkpoint_model)
-    
+
     model.to(device)
     model_ema = None
     model_without_ddp = model
-    
+
     n_parameters = sum(p.numel()
                        for p in model.parameters() if p.requires_grad)
     print('number of params:', n_parameters)
@@ -146,22 +139,22 @@ def main(args):
     print("Number of training examples = %d" % len(dataset_train))
     print("Number of training per epoch = %d" %
           num_training_steps_per_epoch)
-    
+
     num_layers = model_without_ddp.get_num_layers()
     if args.layer_decay < 1.0:
         assigner = LayerDecayValueAssigner(
             list(args.layer_decay ** (num_layers + 1 - i) for i in range(num_layers + 2)))
     else:
         assigner = None
-        
+
     if assigner is not None:
         print("Assigned values = %s" % str(assigner.values))
     skip_weight_decay_list = model.no_weight_decay()
-    
+
     optimizer = create_optimizer(
-            args, model_without_ddp, skip_list=skip_weight_decay_list,
-            get_num_layer=assigner.get_layer_id if assigner is not None else None,
-            get_layer_scale=assigner.get_scale if assigner is not None else None)
+        args, model_without_ddp, skip_list=skip_weight_decay_list,
+        get_num_layer=assigner.get_layer_id if assigner is not None else None,
+        get_layer_scale=assigner.get_scale if assigner is not None else None)
     loss_scaler = NativeScalerWithGradNormCount()
 
     print("Use step level LR scheduler!")
@@ -169,38 +162,37 @@ def main(args):
         args.learning_rate, args.min_lr, args.epochs, num_training_steps_per_epoch,
         warmup_epochs=args.warmup_epochs, warmup_steps=args.warmup_steps,
     )
-    
+
     if args.weight_decay_end is None:
         args.weight_decay_end = args.weight_decay
     wd_schedule_values = cosine_scheduler(
         args.weight_decay, args.weight_decay_end, args.epochs, num_training_steps_per_epoch)
     print("Max WD = %.7f, Min WD = %.7f" %
           (max(wd_schedule_values), min(wd_schedule_values)))
-    
+
     print("Using CrossEntropyLoss")
     criterion = torch.nn.CrossEntropyLoss()
-    
+
     print(f"Start training for {args.epochs} epochs")
     start_time = time.time()
     max_accuracy = 0.0
     max_accuracy_test = 0.0
-    
-    
+
     for epoch in range(args.start_epoch, args.epochs):
         features_flat = []
-        labels_flat =[]
+        labels_flat = []
         if log_writer is not None:
             log_writer.set_step(
                 epoch * num_training_steps_per_epoch * args.update_freq)
         print("got here......")
         train_stats, feats, lbls = train_one_epoch(
-                model, criterion, data_loader_train, optimizer,
-                device, epoch, loss_scaler, args.clip_grad, model_ema,
-                log_writer=log_writer, start_steps=epoch * num_training_steps_per_epoch,
-                lr_schedule_values=lr_schedule_values, wd_schedule_values=wd_schedule_values,
-                num_training_steps_per_epoch=num_training_steps_per_epoch, update_freq=args.update_freq,
-                ch_names=ch_names, is_binary=args.nb_classes == 1
-            )
+            model, criterion, data_loader_train, optimizer,
+            device, epoch, loss_scaler, args.clip_grad, model_ema,
+            log_writer=log_writer, start_steps=epoch * num_training_steps_per_epoch,
+            lr_schedule_values=lr_schedule_values, wd_schedule_values=wd_schedule_values,
+            num_training_steps_per_epoch=num_training_steps_per_epoch, update_freq=args.update_freq,
+            ch_names=ch_names, is_binary=args.nb_classes == 1
+        )
         tsne = TSNE(n_components=2, random_state=0, perplexity=30)
         if isinstance(feats, list):
             feats = torch.cat(feats, dim=0)
@@ -208,7 +200,7 @@ def main(args):
             lbls = torch.cat(lbls, dim=0)
         print("features_flat is: ", feats)
         features_2d = tsne.fit_transform(feats.cpu().numpy())
-        
+
         plt.figure(figsize=(8, 6))
         scatter = plt.scatter(
             features_2d[:, 0],
@@ -223,9 +215,10 @@ def main(args):
         plt.xlabel("TSNE-1")
         plt.ylabel("TSNE-2")
         plt.grid(True)
-        plt.savefig(f"tsne_plots/tsne_epoch{epoch}.png", dpi=300, bbox_inches='tight')
-        plt.close() 
-        
+        plt.savefig(
+            f"tsne_plots/tsne_epoch{epoch}.png", dpi=300, bbox_inches='tight')
+        plt.close()
+
         print("got here......though")
         if data_loader_val is not None:
             print("============== Evaluating on validation and test set ==============")
@@ -309,12 +302,14 @@ def main(args):
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                          'epoch': epoch,
                          'n_parameters': n_parameters}
-        
+
+
 def train_class_batch(model, samples, target, criterion, ch_names):
     outputs = model(samples)
     loss = criterion(outputs, target)
     return loss, outputs
-        
+
+
 def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, loss_scaler, max_norm: float = 0,
@@ -333,13 +328,12 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     header = 'Epoch: [{}]'.format(epoch)
     print_freq = 10
 
-    
     if loss_scaler is None:
         model.zero_grad()
         model.micro_steps = 0
     else:
         optimizer.zero_grad()
-    
+
     for data_iter_step, (samples, targets) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         step = data_iter_step // update_freq
         if step >= num_training_steps_per_epoch:
@@ -357,7 +351,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         samples = samples.float().to(device, non_blocking=True) / 100
         samples = rearrange(samples, 'B N (A T) -> B N A T', T=64)
         targets = targets.to(device, non_blocking=True)
-       
+
         if loss_scaler is None:
             samples = samples.half()
             loss, output = train_class_batch(
@@ -371,14 +365,15 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                 with torch.amp.autocast(device_type='cpu'):
                     loss, output = train_class_batch(
                         model, samples, targets, criterion, input_chans)
-        
-        print("outputsss['penultimate']",outputsss['penultimate'])
-        print("outputsss['penultimate'].shape", outputsss['penultimate'].shape) # shape is [4096, 4, 512]
+
+        print("outputsss['penultimate']", outputsss['penultimate'])
+        # shape is [4096, 4, 512]
+        print("outputsss['penultimate'].shape", outputsss['penultimate'].shape)
         features = outputsss['penultimate']
         features = features.view(256, 16, 4, 512)
         features_flat = features.mean(dim=(1, 2))
         labels_flat = targets
-        
+
         loss_value = loss.item()
 
         if not math.isfinite(loss_value):
@@ -391,7 +386,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             model.step()
 
             if (data_iter_step + 1) % update_freq == 0:
-  
+
                 if model_ema is not None:
                     model_ema.update(model)
             grad_norm = None
@@ -411,9 +406,9 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                 if model_ema is not None:
                     model_ema.update(model)
             loss_scale_value = loss_scaler.state_dict()["scale"]
-            
+
         class_acc = (output.max(-1)[-1] ==
-                         targets.squeeze()).float().mean()
+                     targets.squeeze()).float().mean()
 
         metric_logger.update(loss=loss_value)
         metric_logger.update(class_acc=class_acc)
@@ -449,15 +444,18 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     print("Averaged stats:", metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}, features_flat, labels_flat
 
+
 def get_loss_scale_for_deepspeed(model):
     optimizer = model.optimizer
     return optimizer.loss_scale if hasattr(optimizer, "loss_scale") else optimizer.cur_scale
-     
+
+
 def get_input_chans(ch_names):
     input_chans = [0]  # for cls token
     for ch_name in ch_names:
         input_chans.append(standard_1020.index(ch_name) + 1)
     return input_chans
+
 
 @torch.no_grad()
 def evaluate(data_loader, model, device, args, header='Test:', ch_names=None, metrics=['acc'], is_binary=True):
@@ -470,7 +468,7 @@ def evaluate(data_loader, model, device, args, header='Test:', ch_names=None, me
         criterion = torch.nn.CrossEntropyLoss()
 
     metric_logger = MetricLogger(delimiter="  ")
-    
+
     model.eval()
 
     pred = []
@@ -500,9 +498,6 @@ def evaluate(data_loader, model, device, args, header='Test:', ch_names=None, me
             with torch.amp.autocast(device_type='cpu'):
                 output = model(EEG)
                 loss = criterion(output, target)
-        
-        
-        
 
         print("output shape: ", output.shape)
 
@@ -551,7 +546,6 @@ def evaluate(data_loader, model, device, args, header='Test:', ch_names=None, me
     return ret
 
 
-    
 def cosine_scheduler(base_value, final_value, epochs, niter_per_ep, warmup_epochs=0,
                      start_warmup_value=0, warmup_steps=-1):
     warmup_schedule = np.array([])
@@ -571,6 +565,7 @@ def cosine_scheduler(base_value, final_value, epochs, niter_per_ep, warmup_epoch
 
     assert len(schedule) == epochs * niter_per_ep
     return schedule
+
 
 class NativeScalerWithGradNormCount:
     state_dict_key = "amp_scaler"
@@ -604,6 +599,7 @@ class NativeScalerWithGradNormCount:
     def load_state_dict(self, state_dict):
         self._scaler.load_state_dict(state_dict)
 
+
 def get_grad_norm_(parameters, norm_type: float = 2.0, layer_names=None) -> torch.Tensor:
     if isinstance(parameters, torch.Tensor):
         parameters = [parameters]
@@ -633,7 +629,8 @@ def get_grad_norm_(parameters, norm_type: float = 2.0, layer_names=None) -> torc
                     f"Top norm name: {[layer_names[i][7:] for i in name_top.tolist()]}")
 
     return total_norm
-    
+
+
 def load_state_dict(model, state_dict, prefix='', ignore_missing="relative_position_index"):
     print("Loading state dictionary...")
     missing_keys = []
@@ -699,14 +696,12 @@ def get_models(args):
         use_channels_names=use_channels_names,
         use_chan_conv=True,
         use_mean_pooling=args.use_mean_pooling, logdir=args.log_dir)
-    
+
     print("made model")
     print("These are the layers: ", model.children())
-    
-    
-
 
     return model
+
 
 class TensorboardLogger(object):
     def __init__(self, log_dir):
@@ -742,12 +737,13 @@ class TensorboardLogger(object):
 
 def get_dataset(args):
     print("Preparing KHULA dataset...")
-    
+
     if args.hpc:
         datasetroot = f"/scratch/chntzi001/khula/processed"
     else:
         datasetroot = "/Users/cccohen/deepEEG/unified/khuladataset"
-    train_dataset, test_dataset, val_dataset = prepare_KHULA_dataset(datasetroot)
+    train_dataset, test_dataset, val_dataset = prepare_KHULA_dataset(
+        datasetroot)
 
     ch_names = ['FPZ', 'POZ', 'P7', 'OZ', 'P8', 'T8', 'AF4', 'CP2', 'PO4', 'CP4', 'FC6', 'C1', 'CP5', 'AF3', 'CP1', 'FZ', 'F1', 'CZ', 'PZ', 'F4', 'P3', 'F8', 'TP7', 'C6', 'O1', 'FC3',
                 'C2', 'TP8', 'FC5', 'FCZ', 'C4', 'F3', 'FP2', 'CP6', 'FC2', 'F7', 'P1', 'PO8', 'FT8', 'CP3', 'T7', 'PO7', 'PO3', 'P4', 'FC4', 'O2', 'C5', 'P6', 'C3', 'P5', 'FT7', 'FC1', 'P2', 'F2']
@@ -755,7 +751,7 @@ def get_dataset(args):
     args.nb_classes = 4
     metrics = ["accuracy", "balanced_accuracy",
                "cohen_kappa", "f1_weighted"]
-    
+
     return train_dataset, test_dataset, val_dataset, ch_names, metrics
 
 
@@ -810,6 +806,7 @@ class KHULALoader(torch.utils.data.Dataset):
         X = torch.FloatTensor(X)
         return X, Y
 
+
 class SmoothedValue(object):
     """Track a series of values and provide access to smoothed values over a
     window or the global series average.
@@ -841,7 +838,7 @@ class SmoothedValue(object):
         t = t.tolist()
         self.count = int(t[0])
         self.total = t[1]
-        
+
     @property
     def median(self):
         d = torch.tensor(list(self.deque))
@@ -871,13 +868,15 @@ class SmoothedValue(object):
             global_avg=self.global_avg,
             max=self.max,
             value=self.value)
-        
+
+
 def is_dist_avail_and_initialized():
     if not dist.is_available():
         return False
     if not dist.is_initialized():
         return False
     return True
+
 
 class MetricLogger(object):
     def __init__(self, delimiter="\t"):
@@ -961,6 +960,7 @@ class MetricLogger(object):
         total_time_str = str(datetime.timedelta(seconds=int(total_time)))
         print('{} Total time: {} ({:.4f} s / it)'.format(
             header, total_time_str, total_time / len(iterable)))
+
 
 def get_metrics(output, target, metrics, is_binary, threshold=0.5):
     if is_binary:
@@ -1210,8 +1210,6 @@ class MLP(nn.Module):
         self.act = act_layer()
         self.fc2 = nn.Linear(hidden_features, out_features)
         self.drop = nn.Dropout(drop)
-        
-        
 
     def forward(self, x):
         x = self.fc1(x)
@@ -1239,7 +1237,7 @@ class Attention(nn.Module):
         self.return_attention = return_attention
 
     def forward(self, x, freqs=None):
-      
+
         B, T, C = x.shape
         qkv = self.qkv(x).reshape(B, T, 3, self.num_heads, C //
                                   # 3,B,nh,t,d
@@ -1261,7 +1259,7 @@ class Attention(nn.Module):
             else:
                 attn_weight = torch.softmax(
                     (q @ k.transpose(-2, -1) / math.sqrt(q.size(-1))), dim=-1)
-            
+
             return attn_weight
         # efficient attention using Flash Attention CUDA kernels
         y = torch.nn.functional.scaled_dot_product_attention(
@@ -1556,11 +1554,11 @@ class EEGTransformer(nn.Module):
         # mask_x.shape mN, mC
         # mask_t.shape mN
 
-        print("Before patch_embed:", x.shape) #([256, 54, 1024])
+        print("Before patch_embed:", x.shape)  # ([256, 54, 1024])
 
         # -- patchify x
         x = self.patch_embed(x)
-        print("After patch_embed:", x.shape) #([256, 16, 54, 512])
+        print("After patch_embed:", x.shape)  # ([256, 16, 54, 512])
         B, N, C, D = x.shape
 
         assert N == self.num_patches[1] and C == self.num_patches[
@@ -1726,7 +1724,7 @@ class EEGPTClassifier(nn.Module):
             init_std=0.02,
             qkv_bias=True,
             norm_layer=partial(nn.LayerNorm, eps=1e-6))
-        
+
         print("num patches: ", target_encoder.num_patches)
         print("made reconstructor")
         self.target_encoder = target_encoder
@@ -1790,7 +1788,7 @@ class EEGPTClassifier(nn.Module):
 
     def load_state_dict(self, state_dict, strict: bool = False):
         return super().load_state_dict(state_dict, strict)
-    
+
 
 def getOutput(name, outputsss):
     # the hook signature
@@ -1799,7 +1797,8 @@ def getOutput(name, outputsss):
         print("Output shape:", output.shape)
         outputsss[name] = output.detach()
     return hook
-    
+
+
 try:
     from apex.optimizers import FusedNovoGrad, FusedAdam, FusedLAMB, FusedSGD
     has_apex = True
@@ -1977,37 +1976,35 @@ def create_optimizer(args, model, get_num_layer=None, get_layer_scale=None, filt
     return optimizer
 
 
-
 if __name__ == '__main__':
 
     args = Namespace(
-    batch_size=8,
-    epochs=10,
-    learning_rate=0.00003,
-    log_dir="./",
-    output_dir="./",
-    finetune="/Users/cccohen/deepEEG/unified/eegpt_mcae_58chs_4s_large4E.ckpt",
-    seed=0,
-    use_mean_pooling=True,
-    input_size=200,
-    update_freq=1,
-    layer_decay=0.65,
-    weight_decay_end=None,
-    opt="adamw",
-    weight_decay=0.05,
-    min_lr=1e-6,
-    warmup_epochs=5,
-    warmup_steps=-1,
-    start_epoch=0,
-    clip_grad=5.0,
-    hpc=True
-)
-    
+        batch_size=8,
+        epochs=10,
+        learning_rate=0.00003,
+        log_dir="./",
+        output_dir="./",
+        finetune="/Users/cccohen/deepEEG/unified/eegpt_mcae_58chs_4s_large4E.ckpt",
+        seed=0,
+        use_mean_pooling=True,
+        input_size=200,
+        update_freq=1,
+        layer_decay=0.65,
+        weight_decay_end=None,
+        opt="adamw",
+        weight_decay=0.05,
+        min_lr=1e-6,
+        warmup_epochs=5,
+        warmup_steps=-1,
+        start_epoch=0,
+        clip_grad=5.0,
+        hpc=False
+    )
+
     if args.hpc:
         args.finetune = "/home/chntzi001/deepEEG/EEGPT/downstream/Checkpoints/eegpt_mcae_58chs_4s_large4E.ckpt"
         args.batch_size = 256
-        args.log_dir= f"/home/chntzi001/deepEEG/EEGPT/downstream/log/test"
+        args.log_dir = f"/home/chntzi001/deepEEG/EEGPT/downstream/log/test"
         args.output_dir = f"/scratch/chntzi001/khula/checkpoints/finetune_khula_eegpt/test"
-        
 
     main(args)

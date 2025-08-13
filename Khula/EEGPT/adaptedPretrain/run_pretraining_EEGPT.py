@@ -18,10 +18,14 @@ from timm.models import create_model
 from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
 from timm.utils import ModelEma
 from optim_factory import create_optimizer, get_parameter_groups, LayerDecayValueAssigner
-from Khula.EEGPT.adaptedPretrain.engine_for_pretraining_EEGPT import train_one_epoch, evaluate, getVarOutputs
+from engine_for_pretraining_EEGPT import train_one_epoch, evaluate, getVarOutputs
 from utils import NativeScalerWithGradNormCount as NativeScaler
-from Khula.EEGPT.adaptedPretrain.Modules.models.EEGPT_mcae_pretrain import EEGPTClassifier, getOutput
+from Modules.models.EEGPT_mcae_pretrain import EEGPTClassifier, getOutput
 from sklearn.manifold import TSNE
+from sklearn.cluster import KMeans
+import matplotlib.pyplot as plt
+import matplotlib.cm as cm
+from collections import defaultdict
 from pyexpat import model
 
 
@@ -29,7 +33,7 @@ def get_args():
     parser = argparse.ArgumentParser(
         'pretraining and evaluation script for EEG classification', add_help=False)
     parser.add_argument('--batch_size', default=128, type=int)
-    parser.add_argument('--epochs', default=20, type=int)
+    parser.add_argument('--epochs', default=150, type=int)
     parser.add_argument('--update_freq', default=1, type=int)
     parser.add_argument('--save_ckpt_freq', default=50, type=int)
     parser.add_argument('--log_dir', default="./log", type=str)
@@ -138,24 +142,38 @@ def get_args():
     parser.add_argument('--dataset', default='KHULA', type=str,
                         help='dataset: TUAB | TUEV')
 
+    parser.add_argument('--use_mean_pooling', action='store_true')
+    parser.set_defaults(use_mean_pooling=True)
+    parser.add_argument('--disable_weight_decay_on_rel_pos_bias',
+                        action='store_true', default=False)
+    parser.add_argument('--sweep', default=True)
+    parser.add_argument('--samplelength', default=4, type=int)
     known_args, _ = parser.parse_known_args()
+    ds_init = None
 
     return parser.parse_args(), ds_init
 
 
 def get_models(args):
+    global configs
 
-    use_channels_names = ['AF4', 'F2', 'FCZ', 'FP2', 'FZ', 'FC1', 'FPZ', 'F1', 'FP1', 'AF3', 'F3', 'F5', 'FC5', 'FC3', 'C1', 'F7', 'FT7', 'C3', 'CP1', 'C5', 'CP3', 'T7', 'TP7', 'CP5', 'P5',
-                          'P3', 'CPZ', 'P1', 'PZ', 'PO7', 'PO3', 'O1', 'POZ', 'OZ', 'PO4', 'O2', 'P2', 'CP2', 'PO8', 'P4', 'CP4', 'P6', 'CP6', 'TP8', 'C6', 'C4', 'C2', 'FC4', 'FC2', 'FT8', 'FC6', 'F8', 'F6', 'F4']
-    ch_names = ['AF4', 'F2', 'FCZ', 'FP2', 'FZ', 'FC1', 'FPZ', 'F1', 'FP1', 'AF3', 'F3', 'F5', 'FC5', 'FC3', 'C1', 'F7', 'FT7', 'C3', 'CP1', 'C5', 'CP3', 'T7', 'TP7', 'CP5', 'P5',
-                'P3', 'CPZ', 'P1', 'PZ', 'PO7', 'PO3', 'O1', 'POZ', 'OZ', 'PO4', 'O2', 'P2', 'CP2', 'PO8', 'P4', 'CP4', 'P6', 'CP6', 'TP8', 'C6', 'C4', 'C2', 'FC4', 'FC2', 'FT8', 'FC6', 'F8', 'F6', 'F4']
+    use_channels_names = ['FPZ', 'FP2', 'AF3', 'AF4', 'F7', 'F3', 'F1', 'FZ', 'F2', 'F4', 'F8', 'FT7', 'FC5', 'FC3', 'FC1', 'FCZ', 'FC2', 'FC4', 'FC6', 'FT8', 'T7', 'C5', 'C3', 'C1', 'C2',
+                          'C4', 'C6', 'T8', 'TP7', 'CP5', 'CP3', 'CP1', 'CPZ', 'CP2', 'CP4', 'CP6', 'TP8', 'P7', 'P5', 'P3', 'P1', 'PZ', 'P2', 'P4', 'P6', 'P8', 'PO7', 'PO3', 'POZ', 'PO4', 'PO8', 'O1', 'OZ', 'O2']
+    ch_names = ['FPZ', 'FP2', 'AF3', 'AF4', 'F7', 'F3', 'F1', 'FZ', 'F2', 'F4', 'F8', 'FT7', 'FC5', 'FC3', 'FC1', 'FCZ', 'FC2', 'FC4', 'FC6', 'FT8', 'T7', 'C5', 'C3', 'C1', 'C2', 'C4',
+                'C6', 'T8', 'TP7', 'CP5', 'CP3', 'CP1', 'CPZ', 'CP2', 'CP4', 'CP6', 'TP8', 'P7', 'P5', 'P3', 'P1', 'PZ', 'P2', 'P4', 'P6', 'P8', 'PO7', 'PO3', 'POZ', 'PO4', 'PO8', 'O1', 'OZ', 'O2']
 
-    configs = get_config()
+    configs = get_config(embed_dim=64, embed_num=1,
+                         depth=[2, 2, 4], num_heads=4)
+
+    if args.samplelength == 4:
+        timepoints = 1024
+    else:
+        timepoints = 2560
 
     model = EEGPTClassifier(
         num_classes=args.nb_classes, configs=configs,
         in_channels=len(ch_names),
-        img_size=[len(use_channels_names), 1024],
+        img_size=[len(use_channels_names), timepoints],
         use_channels_names=use_channels_names,
         use_chan_conv=True,
         use_mean_pooling=args.use_mean_pooling, logdir=args.log_dir)
@@ -169,14 +187,14 @@ def get_dataset(args):
     if args.dataset == 'KHULA':
         print("Preparing KHULA dataset...")
         if args.nb_classes > 1:
-            filepath = "/scratch/chntzi001/khula/processedA/"
+            filepath = "/scratch/chntzi001/khula/processed/"
         else:
             filepath = "/scratch/chntzi001/khula/processedBinary/"
         train_dataset, test_dataset, val_dataset = utils.prepare_KHULA_dataset(
             filepath, args.nb_classes)
 
-        ch_names = ['AF4', 'F2', 'FCZ', 'FP2', 'FZ', 'FC1', 'FPZ', 'F1', 'FP1', 'AF3', 'F3', 'F5', 'FC5', 'FC3', 'C1', 'F7', 'FT7', 'C3', 'CP1', 'C5', 'CP3', 'T7', 'TP7', 'CP5', 'P5',
-                    'P3', 'CPZ', 'P1', 'PZ', 'PO7', 'PO3', 'O1', 'POZ', 'OZ', 'PO4', 'O2', 'P2', 'CP2', 'PO8', 'P4', 'CP4', 'P6', 'CP6', 'TP8', 'C6', 'C4', 'C2', 'FC4', 'FC2', 'FT8', 'FC6', 'F8', 'F6', 'F4']
+        ch_names = ['FPZ', 'FP2', 'AF3', 'AF4', 'F7', 'F3', 'F1', 'FZ', 'F2', 'F4', 'F8', 'FT7', 'FC5', 'FC3', 'FC1', 'FCZ', 'FC2', 'FC4', 'FC6', 'FT8', 'T7', 'C5', 'C3', 'C1', 'C2', 'C4',
+                    'C6', 'T8', 'TP7', 'CP5', 'CP3', 'CP1', 'CPZ', 'CP2', 'CP4', 'CP6', 'TP8', 'P7', 'P5', 'P3', 'P1', 'PZ', 'P2', 'P4', 'P6', 'P8', 'PO7', 'PO3', 'POZ', 'PO4', 'PO8', 'O1', 'OZ', 'O2']
 
         args.nb_classes = 4
         metrics = ["accuracy", "balanced_accuracy",
@@ -185,12 +203,13 @@ def get_dataset(args):
     return train_dataset, test_dataset, val_dataset, ch_names, metrics
 
 
-def write_args_to_file(args, output_dir):
+def write_args_to_file(args, output_dir, run_name):
     args_file = os.path.join(output_dir, "args.txt")
     with open(args_file, "w") as f:
         f.write(
             f"date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"name of run: {run_name}\n")
+        f.write(f"sample length: {args.samplelength}\n")
         f.write(f"----------- main hyperparameters: -----------\n")
         f.write(f"seed: {args.seed}\n")
         f.write(f"batch_size: {args.batch_size}\n")
@@ -226,10 +245,6 @@ def write_args_to_file(args, output_dir):
         f.write(f"remode: {args.remode}\n")
         f.write(f"recount: {args.recount}\n")
         f.write(f"resplit: {args.resplit}\n")
-        f.write(f"model_key: {args.model_key}\n")
-        f.write(f"model_prefix: {args.model_prefix}\n")
-        f.write(f"model_filter_name: {args.model_filter_name}\n")
-        f.write(f"init_scale: {args.init_scale}\n")
         f.write(f"use_mean_pooling: {args.use_mean_pooling}\n")
         f.write(
             f"disable_weight_decay_on_rel_pos_bias: {args.disable_weight_decay_on_rel_pos_bias}\n")
@@ -254,13 +269,6 @@ def get_config(embed_dim=512, embed_num=4, depth=[8, 8, 8], num_heads=4):
             'depth': depth[0],
             'num_heads': num_heads,
         },
-        'predictor': {
-            'embed_dim': embed_dim,
-            'embed_num': embed_num,
-            'predictor_embed_dim': embed_dim,
-            'depth': depth[1],
-            'num_heads': num_heads,
-        },
         'reconstructor': {
             'embed_dim': embed_dim,
             'embed_num': embed_num,
@@ -269,6 +277,8 @@ def get_config(embed_dim=512, embed_num=4, depth=[8, 8, 8], num_heads=4):
             'num_heads': num_heads,
         },
     }
+
+    print("Models configs:", models_configs)
     return models_configs
 
 
@@ -279,33 +289,34 @@ def add_args_to_file(output_dir, line):
 
 
 def main(args, ds_init):
+
     if args.sweep:
         global run_name
         wandb.init(
-            project="deepEEG",
+            project="Scratch_deepEEG",
             config=vars(args)
         )
         config = wandb.config
         args.lr = config.lr
         args.batch_size = config.batch_size
-        run_name = f"lr{config.lr:.5f}_bs{config.batch_size}_e{args.epochs}"
+        run_name = f"lr{config.lr:.5f}_bs{config.batch_size}"
         wandb.run.name = run_name
     else:
-        run_name = f"lr{args.lr:.6f}_bs{args.batch_size}_e{args.epochs}"
+        run_name = f"lr{args.lr:.6f}_bs{args.batch_size}"
 
     if args.nb_classes > 1:
         classification = "multiclass"
     else:
         classification = "binary"
 
-    args.output_dir = f"/scratch/chntzi001/khula/checkpoints/pretrain_khula_eegpt/{classification}/06-08/{run_name}"
+    args.output_dir = f"/scratch/chntzi001/khula/checkpoints/pretrain_khula_eegpt/{classification}/12-08/{run_name}"
     output_dir = args.output_dir
-    args.log_dir = f"/home/chntzi001/deepEEG/EEGPT/pretrain/log/{classification}/06-08/{run_name}"
+    args.log_dir = f"/home/chntzi001/deepEEG/EEGPT/pretrain/log/{classification}/12-08/{run_name}"
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(args.log_dir, exist_ok=True)
-    tsneplots = f"/scratch/chntzi001/khula/checkpoints/pretrain_khula_eegpt/{classification}/06-08/{run_name}/tsne_plots"
+    tsneplots = f"/scratch/chntzi001/khula/checkpoints/pretrain_khula_eegpt/{classification}/12-08/{run_name}/tsne_plots"
     os.makedirs(tsneplots, exist_ok=True)
-    write_args_to_file(args, output_dir)
+    write_args_to_file(args, output_dir, run_name)
 
     hyperparameters = {
         "model": "EEGPT-large",
@@ -319,6 +330,11 @@ def main(args, ds_init):
     with open(output_csv, mode='w', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(["Prediction", "True Label"])
+
+    cluster_csv = os.path.join(tsneplots, "clusterdist.csv")
+    with open(cluster_csv, mode='w') as file:
+        writer = csv.writer(file)
+        writer.writerow(['Cluster', '3M', '6M', '12M', '24M'])
 
     if ds_init is not None:
         utils.create_ds_config(args)
@@ -420,6 +436,7 @@ def main(args, ds_init):
         data_loader_test = None
 
     model = get_models(args)
+    add_args_to_file(output_dir, configs)
     theOutputs = getVarOutputs()
     h = model.target_encoder.norm.register_forward_hook(
         getOutput('penultimate', theOutputs))
@@ -470,30 +487,11 @@ def main(args, ds_init):
             skip_weight_decay_list.add(
                 "blocks.%d.attn.relative_position_bias_table" % i)
 
-    if args.enable_deepspeed:
-        loss_scaler = None
-        optimizer_params = get_parameter_groups(
-            model, args.weight_decay, skip_weight_decay_list,
-            assigner.get_layer_id if assigner is not None else None,
-            assigner.get_scale if assigner is not None else None)
-        model, optimizer, _, _ = ds_init(
-            args=args, model=model, model_parameters=optimizer_params, dist_init_required=not args.distributed,
-        )
-
-        print("model.gradient_accumulation_steps() = %d" %
-              model.gradient_accumulation_steps())
-        assert model.gradient_accumulation_steps() == args.update_freq
-    else:
-        if args.distributed:
-            model = torch.nn.parallel.DistributedDataParallel(
-                model, device_ids=[args.gpu], find_unused_parameters=True)
-            model_without_ddp = model.module
-
-        optimizer = create_optimizer(
-            args, model_without_ddp, skip_list=skip_weight_decay_list,
-            get_num_layer=assigner.get_layer_id if assigner is not None else None,
-            get_layer_scale=assigner.get_scale if assigner is not None else None)
-        loss_scaler = NativeScaler()
+    optimizer = create_optimizer(
+        args, model_without_ddp, skip_list=skip_weight_decay_list,
+        get_num_layer=assigner.get_layer_id if assigner is not None else None,
+        get_layer_scale=assigner.get_scale if assigner is not None else None)
+    loss_scaler = NativeScaler()
 
     print("Use step level LR scheduler!")
     lr_schedule_values = utils.cosine_scheduler(
@@ -536,8 +534,6 @@ def main(args, ds_init):
     max_accuracy = 0.0
     max_accuracy_test = 0.0
     for epoch in range(args.start_epoch, args.epochs):
-        if args.distributed:
-            data_loader_train.sampler.set_epoch(epoch)
         if log_writer is not None:
             log_writer.set_step(
                 epoch * num_training_steps_per_epoch * args.update_freq)
@@ -549,6 +545,8 @@ def main(args, ds_init):
             num_training_steps_per_epoch=num_training_steps_per_epoch, update_freq=args.update_freq,
             ch_names=ch_names, is_binary=args.nb_classes == 1,
         )
+
+        # Creating TSNE plots
         tsne = TSNE(n_components=2, random_state=0, perplexity=30)
         if isinstance(feats, list):
             feats = torch.cat(feats, dim=0)
@@ -556,26 +554,46 @@ def main(args, ds_init):
             lbls = torch.cat(lbls, dim=0)
         features_2d = tsne.fit_transform(feats.cpu().numpy())
         unique_labels = np.unique(lbls.cpu().numpy())
-        cmap = cm.get_cmap('tab10', len(unique_labels))
+        age = {0: '3M', 1: '6M', 2: '12M', 3: '24M'}
+        colours = ['#800080',
+                   "#5959EDFF",
+                   "#0ABA0A",
+                   '#000000']
+        kmeans = KMeans(n_clusters=4, random_state=0)
+        clusters = kmeans.fit_predict(features_2d)
 
         plt.figure(figsize=(8, 6))
-        for i, label in enumerate(unique_labels):
-            idx = lbls.cpu().numpy() == label
+        # cluster-wise colouring
+        for cluster_id in np.unique(clusters):
+            idx = clusters == cluster_id
             plt.scatter(
                 features_2d[idx, 0], features_2d[idx, 1],
+                color=colours[cluster_id],
                 s=20, alpha=0.7,
-                color=cmap(i),
-                label=f'Class {label}'
+                label=f"Cluster {cluster_id}"
             )
-        plt.title("t-SNE of EEG Features Colored by Class Label")
-        plt.legend(title="Class", loc="best")
-        plt.xlabel("TSNE-1")
-        plt.ylabel("TSNE-2")
+        plt.title("k=4")
+        plt.legend(title="Cluster ID", loc="best")
         plt.grid(True)
         filename = f"tsne_epoch{epoch}.png"
         plotpath = os.path.join(tsneplots, filename)
         plt.savefig(plotpath, dpi=300, bbox_inches='tight')
         plt.close()
+
+        # logging stats of clusters (via csv)
+        cluster_ids = clusters
+        true_labels = lbls.cpu().numpy()
+        distribution = defaultdict(lambda: defaultdict(int))
+        for cluster_id, true_label in zip(cluster_ids, true_labels):
+            distribution[cluster_id][true_label] += 1
+
+        with open(cluster_csv, mode='a') as file:
+            writer = csv.writer(file)
+            for cluster_id, label_counts in distribution.items():
+                clusterID = f"{epoch}_{cluster_id}"
+                writer.writerow([clusterID, label_counts.get(0, 0), label_counts.get(1, 0),
+                                 label_counts.get(2, 0), label_counts.get(3, 0)])
+
         if args.sweep:
             wandb.log({f"train/{k}": v for k, v in train_stats.items()}
                       | {"epoch": epoch})

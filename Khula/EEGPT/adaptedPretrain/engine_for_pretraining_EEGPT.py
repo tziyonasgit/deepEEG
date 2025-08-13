@@ -77,6 +77,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
         samples = samples.float().to(device, non_blocking=True) / 100
         samples = rearrange(samples, 'B N (A T) -> B N A T', T=64)
+        numPatches = samples.shape[2]
         targets = targets.to(device, non_blocking=True)
         if is_binary:
             targets = targets.float().unsqueeze(-1)
@@ -91,10 +92,12 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     model, samples, targets, criterion, input_chans)
 
         features = theOutputs['penultimate']
-        features = features.view(128, 16, 4, 512)
+        features = features.view(128, numPatches, 1, 64)
         features_flat = features.mean(dim=(1, 2))
         labels_flat = targets
         loss_value = loss.item()
+        theOutputs.clear()
+        torch.cuda.empty_cache()
 
         if not math.isfinite(loss_value):
             print("Loss is {}, stopping training".format(loss_value))

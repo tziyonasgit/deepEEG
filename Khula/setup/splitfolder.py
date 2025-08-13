@@ -8,14 +8,14 @@ import csv
 # Path to raw EEG files (e.g. .set, .edf)
 input_dir = '/scratch/chntzi001/khula'
 
-output_root = '/scratch/chntzi001/khula/processed'
+output_root = '/scratch/chntzi001/khula/processedBinary'
 
-months = [3, 6, 12, 24]
+months = [3, 24]
 subject_files = defaultdict(list)
 pattern = re.compile(r'\d+_\d+_(\d+)_(\d+)(?:_[ST])?_\d+_\d+_processed\.set')
 
 
-with open('khulasubs.csv', newline='') as csvfile:
+with open('/home/chntzi001/deepEEG/setUpKhula/binary/khulasubs3v24.csv', newline='') as csvfile:
     reader = csv.reader(csvfile)
     firstRow = next(reader)  # Skip header
     all_rows = list(reader)
@@ -72,13 +72,13 @@ for split_name, subjects in splits.items():
             src_path = os.path.join(input_dir, filename)
             dst_path = os.path.join(output_root, split_name)
             if split_name == 'train':
-                with open("train.txt", "a") as f:
+                with open("trainBin.txt", "a") as f:
                     f.writelines(src_path + "_" + dst_path + "\n")
             elif split_name == 'val':
-                with open("val.txt", "a") as f:
+                with open("valBin.txt", "a") as f:
                     f.writelines(src_path + "_" + dst_path + "\n")
             elif split_name == 'test':
-                with open("test.txt", "a") as f:
+                with open("testBin.txt", "a") as f:
                     f.writelines(src_path + "_" + dst_path + "\n")
 
 
