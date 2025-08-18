@@ -1,9 +1,11 @@
-program: /home/chntzi001/deepEEG/EEGPT/pretrain/run_pretraining_EEGPT.py
-project: scratch_deepEEG
+program: /home/chntzi001/deepEEG/EEGPT/pretrain/ss/run_pretraining.py
+project: ss_deepEEG
 method: grid
 metric:
-  goal: maximize
-  name: accuracy
+  goal: minimize
+  name: loss
 parameters:
   lr:
-    values: [0.00001, 0.00002, 0.00003, 0.00004]
+    values: [0.000045, 0.00005, 0.00004]
+  batch_size:
+    values: [32, 64, 128]

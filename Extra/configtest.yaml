@@ -1,8 +1,0 @@
-program: /home/chntzi001/deepEEG/EEGPT/downstream/run_class_finetuning_EEGPT_change_age.py
-method: grid
-metric:
-  goal: maximize
-  name: accuracy
-parameters:
-  lr:
-    values: [0.00005, 0.00003, 0.0001, 0.0003, 0.0001, 0.003]

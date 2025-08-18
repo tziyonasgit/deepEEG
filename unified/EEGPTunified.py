@@ -1,4 +1,3 @@
-from torchviz import make_dot
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 import torch.distributed as dist
@@ -106,11 +105,6 @@ def main(args):
     )
 
     model = get_models(args)
-    print("model: ", model)
-    # Generate the visualization
-    dot = make_dot(output, params=dict(model.named_parameters()))
-    dot.render("model_architecture", format="png",
-               view=True)  # Saves as PNG and opens
 
     patch_size = 64
     window_size = (1, args.input_size // patch_size)
@@ -365,14 +359,6 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                 with torch.amp.autocast(device_type='cpu'):
                     loss, output = train_class_batch(
                         model, samples, targets, criterion, input_chans)
-
-        print("outputsss['penultimate']", outputsss['penultimate'])
-        # shape is [4096, 4, 512]
-        print("outputsss['penultimate'].shape", outputsss['penultimate'].shape)
-        features = outputsss['penultimate']
-        features = features.view(256, 16, 4, 512)
-        features_flat = features.mean(dim=(1, 2))
-        labels_flat = targets
 
         loss_value = loss.item()
 
@@ -666,18 +652,6 @@ def load_state_dict(model, state_dict, prefix='', ignore_missing="relative_posit
             ignore_missing_keys.append(key)
 
     missing_keys = warn_missing_keys
-
-    if len(missing_keys) > 0:
-        print("Weights of {} not initialized from pretrained model: {}".format(
-            model.__class__.__name__, missing_keys))
-    if len(unexpected_keys) > 0:
-        print("Weights from pretrained model not used in {}: {}".format(
-            model.__class__.__name__, unexpected_keys))
-    if len(ignore_missing_keys) > 0:
-        print("Ignored weights of {} not initialized from pretrained model: {}".format(
-            model.__class__.__name__, ignore_missing_keys))
-    if len(error_msgs) > 0:
-        print('\n'.join(error_msgs))
 
 
 def get_models(args):
@@ -1235,6 +1209,7 @@ class Attention(nn.Module):
         self.proj_drop = nn.Dropout(proj_drop)
         self.is_causal = is_causal
         self.return_attention = return_attention
+        print("is return_attention: ", self.return_attention)
 
     def forward(self, x, freqs=None):
 
@@ -1259,7 +1234,10 @@ class Attention(nn.Module):
             else:
                 attn_weight = torch.softmax(
                     (q @ k.transpose(-2, -1) / math.sqrt(q.size(-1))), dim=-1)
-
+            print("========================")
+            # torch.Size([128, 8, 58, 58]) [128=batch, 8=num_heads, 58=T = N_chan + embed_num]
+            print("attn_weight shape: ", attn_weight.shape)
+            print("========================")
             return attn_weight
         # efficient attention using Flash Attention CUDA kernels
         y = torch.nn.functional.scaled_dot_product_attention(
@@ -1289,7 +1267,11 @@ class Block(nn.Module):
 
     def forward(self, x, freqs=None):
         y = self.attn(self.norm1(x), freqs)
+        print("it is,,,,", self.return_attention)
         if self.return_attention:
+            print("========================")
+            print("Attention output shape: ", y.shape)
+            print("========================")
             return y
         x = x + self.drop_path(y)
         x = x + self.drop_path(self.mlp(self.norm2(x)))
@@ -1665,7 +1647,7 @@ class EEGPTClassifier(nn.Module):
     def __init__(self,
                  num_classes,
                  in_channels=22,
-                 img_size=[58, 2000],
+                 img_size=[54, 2000],
                  patch_stride=64,
                  use_channels_names=None,
                  use_mean_pooling=True,
@@ -1708,6 +1690,13 @@ class EEGPTClassifier(nn.Module):
             norm_layer=partial(nn.LayerNorm, eps=1e-6),
             logdir=logdir)
 
+        print("#########################")
+        print("num encoder blocks:", len(target_encoder.blocks))
+        secondLastBlock = len(target_encoder.blocks)-1
+        print("secondLastBlock:", target_encoder.blocks[secondLastBlock])
+        print("#########################")
+        target_encoder.blocks[secondLastBlock].attn.return_attention = True
+
         print("made target_encoder")
         reconstructor = EEGTransformerReconstructor(
             num_patches=target_encoder.num_patches,
@@ -1725,12 +1714,11 @@ class EEGPTClassifier(nn.Module):
             qkv_bias=True,
             norm_layer=partial(nn.LayerNorm, eps=1e-6))
 
-        print("num patches: ", target_encoder.num_patches)
-        print("made reconstructor")
         self.target_encoder = target_encoder
+
         self.reconstructor = reconstructor
         self.chans_id = target_encoder.prepare_chan_ids(use_channels_names)
-
+        print('embed num:', target_encoder.embed_num)
         embed_dim = 512
         self.embed_dim = embed_dim
         self.norm = nn.Identity() if use_mean_pooling else norm_layer(embed_dim)

@@ -82,6 +82,35 @@ checkpointChannels = set(['FP1', 'FPZ', 'FP2',
                           'O1', 'OZ', 'O2', ])
 
 is_raw = False
+train_length = 32968
+val_length = 3856
+test_length = 4326
+
+
+def createEEG(num):
+    # Example data (replace with your actual data)
+    n_channels = 54
+    sampling_rate = 256  # Hz
+    duration = 4
+    amplitude = num
+    frequency = num
+    phase = num
+    time = np.linspace(0, duration, int(
+        duration * sampling_rate), endpoint=False)
+    data = amplitude * np.sin(2 * np.pi * frequency * time + phase)
+    eeg_uv = np.tile(data, (n_channels, 1))
+
+    # Create channel names and types
+    ch_names = chOrder_standard
+    ch_types = ['eeg'] * n_channels
+
+    # Create the Info object
+    info = mne.create_info(
+        ch_names=ch_names, sfreq=sampling_rate, ch_types=ch_types)
+    eeg_v = (eeg_uv * 1e-6).astype(np.float32)
+    raw = mne.io.RawArray(eeg_v, info, verbose=False)
+
+    return raw
 
 
 def split_and_dump(params):
@@ -119,12 +148,7 @@ def split_and_dump(params):
         data.filter(l_freq=0.1, h_freq=75.0)
         data.resample(256, n_jobs=5)
 
-        print("The ACTUAL number of channels left: ", len(data.ch_names))
-        print("the ACTUAL channels are: ", data.ch_names)
-        print("final check of channel_10_20_names: ", chOrder_standard)
-
         if is_raw:
-            # raw -> shape = (n_channels, n_times)
             raw_data = data.get_data(units='uV')
             channeled_data = raw_data.copy()
         else:
@@ -132,19 +156,18 @@ def split_and_dump(params):
             epochs_data = data.get_data()
             channeled_data = np.concatenate(epochs_data, axis=-1)
             # final shape: (n_channels, n_times)
-        if channeled_data.ndim != 2 or channeled_data.shape[1] < 2560:
+        if channeled_data.ndim != 2 or channeled_data.shape[1] < 1024:
             raise ValueError(
                 f"Invalid data shape: {channeled_data.shape} for file {file}")
 
         # channeled_data.shape[1] -> tells us number of time points
-        for i in range(channeled_data.shape[1] // 2560):
+        for i in range(channeled_data.shape[1] // 1024):
             dump_path = os.path.join(
                 dump_folder, file.split(".")[0] + "_" + str(i) + ".pkl"
             )
             # print(f"Saving pickle to {dump_path}")
             pickle.dump(
-                {"X": channeled_data[:, i *
-                                     2560: (i + 1) * 2560], "y": label},
+                {"X": createEEG(int(label)), "y": label},
                 open(dump_path, "wb"),
             )
             print("dump_path", dump_path)
@@ -172,75 +195,55 @@ if __name__ == "__main__":
 
     # eeg recording file name e.g. 1_191_14933186_12_T_20230720_011457002_processed.set
 
-    with open("trainBin.txt") as f:
+    with open("trainSynthetic.txt") as f:
         train_files = [line.strip() for line in f]
 
-    with open("valBin.txt") as f:
+    with open("valSynthetic.txt") as f:
         val_files = [line.strip() for line in f]
 
-    with open("testBin.txt") as f:
+    with open("testSynthetic.txt") as f:
         test_files = [line.strip() for line in f]
 
     # create the train, val, test sample folder
-    if not os.path.exists(os.path.join(root, "processedBinary")):
-        os.makedirs(os.path.join(root, "processedBinary"))
+    if not os.path.exists(os.path.join(root, "processedSynthetic")):
+        os.makedirs(os.path.join(root, "processedSynthetic"))
 
-    if not os.path.exists(os.path.join(root, "processedBinary", "train")):
-        os.makedirs(os.path.join(root, "processedBinary", "train"))
-    train_dump_folder = os.path.join(root, "processedBinary", "train")
+    if not os.path.exists(os.path.join(root, "processedSynthetic", "train")):
+        os.makedirs(os.path.join(root, "processedSynthetic", "train"))
+    train_dump_folder = os.path.join(root, "processedSynthetic", "train")
 
-    if not os.path.exists(os.path.join(root, "processedBinary", "val")):
-        os.makedirs(os.path.join(root, "processedBinary", "val"))
-    val_dump_folder = os.path.join(root, "processedBinary", "val")
+    if not os.path.exists(os.path.join(root, "processedSynthetic", "val")):
+        os.makedirs(os.path.join(root, "processedSynthetic", "val"))
+    val_dump_folder = os.path.join(root, "processedSynthetic", "val")
 
-    if not os.path.exists(os.path.join(root, "processedBinary", "test")):
-        os.makedirs(os.path.join(root, "processedBinary", "test"))
-    test_dump_folder = os.path.join(root, "processedBinary", "test")
+    if not os.path.exists(os.path.join(root, "processedSynthetic", "test")):
+        os.makedirs(os.path.join(root, "processedSynthetic", "test"))
+    test_dump_folder = os.path.join(root, "processedSynthetic", "test")
 
     # fetch_folder, sub, dump_folder, labels
     parameters = []
 
-    label = None
     for train_sub in train_files:
         train_sub_src, train_dump_folder = splitSrcDest(train_sub)
-        print(f"train_sub_src: {train_sub_src}")
-        match = re.search(r'_(3|24)_', train_sub_src)
-        if match.group(1) in ['3']:
-            label = 0
-        elif match.group(1) in ['24']:
-            label = 1
-        if label is not None:
-            parameters.append(
-                [train_sub_src, train_dump_folder, label])
-        else:
-            raise ValueError(
-                f"Failed to extract session from: {train_sub_src}")
+        match = re.search(r'_(3|6|12|24)_', train_sub_src)
+        parameters.append(
+            [train_sub_src, train_dump_folder, match.group(1)])
 
     for val_sub in val_files:
         val_sub_src, val_dump_folder = splitSrcDest(val_sub)
-        match = re.search(r'_(3|24)_', val_sub_src)
-        if match.group(1) in ['3']:
-            label = 0
-        elif match.group(1) in ['24']:
-            label = 1
-        if label is not None:
+        match = re.search(r'_(3|6|12|24)_', val_sub_src)
+        if match:
+            session = match.group(1)
             parameters.append(
-                [val_sub_src, val_dump_folder, label])
+                [val_sub_src, val_dump_folder, session])
         else:
             raise ValueError(f"Failed to extract session from: {val_sub_src}")
 
     for test_sub in test_files:
         test_sub_src, test_dump_folder = splitSrcDest(test_sub)
-        match = re.search(r'_(3|24)_', test_sub_src)
-        if match.group(1) in ['3']:
-            label = 0
-        elif match.group(1) in ['24']:
-            label = 1
-        if label is not None:
-            parameters.append(
-                [test_sub_src, test_dump_folder, label])
-        else:
-            raise ValueError(f"Failed to extract session from: {test_sub_src}")
+        match = re.search(r'_(3|6|12|24)_', test_sub_src)
+        parameters.append(
+            [test_sub_src, test_dump_folder, match.group(1)])
 
     # split and dump in parallel
     with multiprocessing.Pool(processes=24) as pool:
