@@ -2,7 +2,7 @@
 
 
 
-sintx --ntasks=1 --account=l40sfree --partition=l40s
+sintx --ntasks=1 --gres=gpu:l40s:1 --account=l40sfree --partition=l40s
 sintx --ntasks=1 --account=compsci --partition=ada
 conda activate EEGPT_env
 
@@ -25,6 +25,7 @@ squeue -u $USER
 
 conda activate EEGPT_env
 wandb sweep config.yaml
+wandb sweep --entity chntzi001uct --project DQN config.yaml
 
 accessing tensorboard log:
 conda activate EEGPT_env

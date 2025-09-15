@@ -6,6 +6,6 @@ metric:
   name: loss
 parameters:
   lr:
-    values: [0.000045, 0.00005, 0.00004]
+    values: [0.000045, 0.00005, 0.00004, 0.000055, 0.00006]
   batch_size:
-    values: [32, 64, 128]
+    values: [32, 64]
