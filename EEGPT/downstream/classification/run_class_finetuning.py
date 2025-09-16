@@ -1,12 +1,20 @@
 """
 Finetuning script for EEGPT on KHULA dataset
+================================================================
+This is the main script to finetune EEGPT on the KHULA dataset i.e. runs the training and evaluation pipeline.
 
 Usage:
     python run_class_finetuning_age.py
+    
+
+Original EEGPT authors:
+    Guagnyu Wang, Wenchao Liu, Yuhong He, Cong Xu, Lin Ma, Haifeng Li
+    "EEGPT: Pretrained Transformer for Universal and Reliable Representation of EEG Signals"
+Adapted by:
+    Tziyona Cohen, University of Cape Town (UCT)
 
 """
 
-# ---------------- Standard library ---------------- #
 import argparse
 import datetime
 import time
@@ -16,7 +24,6 @@ import csv
 from collections import defaultdict
 from pathlib import Path
 
-# ---------------- Third-party modules ---------------- #
 from timm.loss import LabelSmoothingCrossEntropy
 import numpy as np
 from timm.utils import ModelEma
@@ -28,7 +35,7 @@ import matplotlib.cm as cm
 import torch
 import torch.backends.cudnn as cudnn
 
-# ---------------- Local modules ---------------- #
+
 from engine_for_finetuning import train_one_epoch, evaluate, getVarOutputs
 from utils import NativeScalerWithGradNormCount as NativeScaler
 import utils
@@ -272,6 +279,7 @@ def get_dataset(args):
 
 
 def write_args_to_file(args, output_dir):
+    """Writes arguments to a text file in the output directory"""
     args_file = os.path.join(output_dir, "args.txt")
     with open(args_file, "w") as f:
         f.write(
@@ -380,6 +388,7 @@ def main(args, ds_init):
     if args.scratch:
         run_name = f"{args.scratch_runname}_seed{args.seed}"
 
+    # setting up output and log directories
     args.output_dir = f"/scratch/chntzi001/khula/checkpoints/finetune_khula_eegpt/{classification}/{args.task}/{args.date}/{run_name}"
     output_dir = args.output_dir
     args.log_dir = f"/home/chntzi001/deepEEG/EEGPT/downstream/log/{classification}/{args.task}/{args.date}/{run_name}"
@@ -507,6 +516,7 @@ def main(args, ds_init):
         data_loader_val = None
         data_loader_test = None
 
+    # setting up forward hook
     model = get_models(args)
     theOutputs = getVarOutputs()
     h = model.target_encoder.norm.register_forward_hook(
@@ -686,64 +696,6 @@ def main(args, ds_init):
                 f"Accuracy of the network on the {len(dataset_val)} val EEG: {val_stats['accuracy']:.2f}%")
             test_stats = evaluate(data_loader_test, model, device, args, header='Test:',
                                   ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1)
-            # print("================== Creating TSNE plots ==================")
-            # tsne = TSNE(n_components=2, random_state=0, perplexity=30)
-            # if isinstance(feats, list):
-            #     feats = torch.cat(feats, dim=0)
-            # if isinstance(lbls, list):
-            #     lbls = torch.cat(lbls, dim=0)
-            # features_2d = tsne.fit_transform(feats.cpu().numpy())
-            # lbls = lbls.detach().cpu().numpy().squeeze()
-            # print("lbls: ", lbls)
-            # unique_labels = np.unique(lbls)
-            # if args.nb_classes > 1:
-            #     age = {0: '3M', 1: '6M', 2: '12M', 3: '24M'}
-            #     label_to_color = {0: '#800080',
-            #                       1: '#5959ED', 2: '#000000', 3: '#0ABA0A'}
-            # else:
-            #     age = {0: '3M', 1: '24M'}
-            #     label_to_color = {0: '#800080', 1: '#0ABA0A'}
-
-            # plt.figure(figsize=(8, 6))
-
-            # label-wise colouring
-            # for i, label in enumerate(unique_labels):
-            #     idx = (lbls == label)
-            #     plt.scatter(
-            #         features_2d[idx, 0], features_2d[idx, 1],
-            #         color=label_to_color[i],
-            #         s=20, alpha=0.7,
-            #         label=f'Age {age.get(int(label), str(label))}'
-            #     )
-            # plt.title("TSNE plot for epoch %d" % epoch)
-            # plt.legend(title="Age group", loc="best")
-            # plt.grid(True)
-            # filename = f"tsne_epoch{epoch}.png"
-            # plotpath = os.path.join(tsneplots, filename)
-            # plt.savefig(plotpath, dpi=300, bbox_inches='tight')
-            # plt.close()
-
-            # # logging stats of clusters (via csv)
-            # if args.nb_classes > 1:
-            #     n_clusters = 4
-            # else:
-            #     n_clusters = 2
-            # kmeans = KMeans(n_clusters=n_clusters, random_state=0)
-            # cluster_ids = kmeans.fit_predict(features_2d)
-            # distribution = defaultdict(lambda: defaultdict(int))
-            # for cluster_id, true_label in zip(cluster_ids, lbls):
-            #     distribution[cluster_id][true_label] += 1
-
-            # with open(cluster_csv, mode='a') as file:
-            #     writer = csv.writer(file)
-            #     for cluster_id, label_counts in distribution.items():
-            #         clusterID = f"{epoch}_{cluster_id}"
-            #         if args.nb_classes > 1:
-            #             writer.writerow([clusterID, label_counts.get(0, 0), label_counts.get(1, 0),
-            #                             label_counts.get(2, 0), label_counts.get(3, 0)])
-            #         else:
-            #             writer.writerow(
-            #                 [clusterID, label_counts.get(0, 0), label_counts.get(1, 0)])
 
             if args.sweep:
                 wandb.log({f"test/{k}": v for k, v in test_stats.items()}

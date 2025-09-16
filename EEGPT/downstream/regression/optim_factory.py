@@ -1,3 +1,18 @@
+"""
+optimiser factory 
+================================================================
+
+
+Original copyright notice:
+Copyright (c) Meta Platforms, Inc. and affiliates. All rights reserved.
+This source code is licensed under the license found in the LICENSE file
+in the root directory of this source tree.
+
+
+Original author: Guagnyu Wang, Wenchao Liu, Yuhong He, Cong Xu, Lin Ma, Haifeng Li 
+From paper: EEGPT: Pretrained Transformer for Universal and Reliable Representation of EEG Signals
+"""
+
 import torch
 from torch import optim as optim
 

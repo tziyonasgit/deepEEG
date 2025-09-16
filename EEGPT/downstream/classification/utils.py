@@ -1,3 +1,25 @@
+"""
+Utilities for EEGPT training and evaluation
+================================================================
+This module aggregates utilities used across the EEGPT fine-tuning pipeline,
+including:
+    - Distributed training helpers 
+    - Logging
+    - Checkpoint helper
+    - LR / WD cosine schedulers with warmup
+    - Dataset builders 
+    - Metric computation using pyhealth.
+    - Channel indexing
+
+    
+
+Original EEGPT authors:
+    Guagnyu Wang, Wenchao Liu, Yuhong He, Cong Xu, Lin Ma, Haifeng Li
+    "EEGPT: Pretrained Transformer for Universal and Reliable Representation of EEG Signals"
+Adapted by:
+    Tziyona Cohen, University of Cape Town (UCT)
+
+"""
 from scipy.stats import pearsonr
 from sklearn.metrics import mean_squared_error
 from sklearn.metrics import r2_score
@@ -437,6 +459,7 @@ def init_distributed_mode(args):
 
 
 def load_state_dict(model, state_dict, prefix='', ignore_missing="relative_position_index"):
+    """Load a checkpoint into 'model' while ignoring selected missing keys"""
     missing_keys = []
     unexpected_keys = []
     error_msgs = []
@@ -571,6 +594,7 @@ def cosine_scheduler(base_value, final_value, epochs, niter_per_ep, warmup_epoch
 
 
 def save_model(args, epoch, model, model_without_ddp, optimizer, loss_scaler, epochNum=None, model_ema=None, optimizer_disc=None, save_ckpt_freq=1):
+    """ Checkpoint saving of train state"""
     output_dir = Path(args.output_dir)
     epoch_name = str(epoch)
     print("output directory for checkpoints is: ", output_dir)
@@ -611,6 +635,7 @@ def save_model(args, epoch, model, model_without_ddp, optimizer, loss_scaler, ep
 
 
 def auto_load_model(args, model, model_without_ddp, optimizer, loss_scaler, model_ema=None, optimizer_disc=None):
+    """ Loads latest checkpoint if it exists """
     output_dir = Path(args.output_dir)
 
     if not getattr(args, 'enable_deepspeed', False):
@@ -863,43 +888,6 @@ def prepare_test_dataset(root):
     test_dataset = QUEROLoader(os.path.join(root, "test"), test_files)
     print(len(test_files))
     return test_dataset
-
-
-class IndexDataset(Dataset):
-    def __init__(
-        self, df, all_eegs, transform_fn, is_valid=False, cfg=None
-    ):
-        self.df = df[df['class_code'] != 'mysz']
-        self.cfg = cfg
-
-        self.is_valid = is_valid
-        self.all_eegs = all_eegs
-        self.transform_fn = transform_fn
-        self.class_name_to_num = {'cpsz': 0, 'gnsz': 1, 'fnsz': 2,
-                                  'tcsz': 3, 'spsz': 4, 'absz': 5, 'tnsz': 6, 'bckg': 7}
-
-    def __len__(self):
-        """
-        Length of dataset.
-        """
-        return len(self.df)
-
-    def __data_generation(self, index):
-        row = self.df.iloc[index]
-
-        x = self.all_eegs[row.id]
-        y = self.class_name_to_num[row.class_code]
-
-        return x, y
-
-    def __getitem__(self, index):
-        """
-        Get one item.
-        """
-
-        output = self.__data_generation(index)
-        output = self.transform_fn(output, self.cfg)
-        return output
 
 
 def transform_fn(info, cfg):

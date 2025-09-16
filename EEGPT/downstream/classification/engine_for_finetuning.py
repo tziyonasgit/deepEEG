@@ -1,12 +1,25 @@
-# --------------------------------------------------------
-# Large Brain Model for Learning Generic Representations with Tremendous EEG Data in BCI
-# By Wei-Bang Jiang
-# Based on BEiT-v2, timm, DeiT, and DINO code bases
-# https://github.com/microsoft/unilm/tree/master/beitv2
-# https://github.com/rwightman/pytorch-image-models/tree/master/timm
-# https://github.com/facebookresearch/deit/
-# https://github.com/facebookresearch/dino
-# --------------------------------------------------------
+"""
+Training & Evaluation Utilities for EEGPT Classifier
+=================================================================
+Wang et al. adapted this from the "Large Brain Model for Learning Generic
+Representations with Tremendous EEG Data in BCI" utilities and uses patterns common
+in BEiT-v2, timm, DeiT, and DINO codebases.
+
+
+References
+----------
+- BEiT-v2: https://github.com/microsoft/unilm/tree/master/beitv2
+- timm: https://github.com/rwightman/pytorch-image-models
+- DeiT: https://github.com/facebookresearch/deit/
+- DINO: https://github.com/facebookresearch/dino
+
+
+EEGPT: 
+Original author: Guagnyu Wang, Wenchao Liu, Yuhong He, Cong Xu, Lin Ma, Haifeng Li 
+From paper: EEGPT: Pretrained Transformer for Universal and Reliable Representation of EEG Signals
+
+Additional changes made by: Tziyona Cohen, UCT
+"""
 from torchmetrics import ConfusionMatrix
 import math
 import sys
@@ -23,10 +36,19 @@ theOutputs = {}
 
 
 def getVarOutputs():
+    """Return the shared dict of captured activations from model forward pass"""
     return theOutputs
 
 
 def train_class_batch(model, samples, target, criterion, ch_names):
+    """
+    Run a single forward pass and compute the supervised loss.
+
+    Args:
+        target (torch.Tensor): labels of samples
+        criterion (nn.Module): loss function
+
+    """
     outputs = model(samples)
     loss = criterion(outputs, target)
     return loss, outputs
@@ -47,6 +69,8 @@ def train_one_epoch(args, model: torch.nn.Module, criterion: torch.nn.Module,
     if ch_names is not None:
         input_chans = utils.get_input_chans(ch_names)
     model.train(True)
+
+    # setting up metric logger to track stats
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', utils.SmoothedValue(
         window_size=1, fmt='{value:.6f}'))
@@ -55,6 +79,7 @@ def train_one_epoch(args, model: torch.nn.Module, criterion: torch.nn.Module,
     header = 'Epoch: [{}]'.format(epoch)
     print_freq = 10
 
+    # two training modes: deepspeed or native amp
     if loss_scaler is None:
         model.zero_grad()
         model.micro_steps = 0
@@ -75,6 +100,7 @@ def train_one_epoch(args, model: torch.nn.Module, criterion: torch.nn.Module,
                 if wd_schedule_values is not None and param_group["weight_decay"] > 0:
                     param_group["weight_decay"] = wd_schedule_values[it]
 
+        # prepare samples and targets
         samples = samples.float().to(device, non_blocking=True) / 100
         samples = rearrange(samples, 'B N (A T) -> B N A T', T=64)
         numPatches = samples.shape[2]
@@ -91,6 +117,7 @@ def train_one_epoch(args, model: torch.nn.Module, criterion: torch.nn.Module,
                 loss, output = train_class_batch(
                     model, samples, targets, criterion, input_chans)
 
+        # optional feature extraction for tsne visualization
         features = theOutputs['penultimate']
         features = features.view(args.batch_size, numPatches, 4, 512)
         features_flat = features.mean(dim=(1, 2))
@@ -139,6 +166,7 @@ def train_one_epoch(args, model: torch.nn.Module, criterion: torch.nn.Module,
             class_acc = (output.max(-1)[-1] ==
                          targets.squeeze()).float().mean()
 
+        # update metric logger
         metric_logger.update(loss=loss_value)
         metric_logger.update(class_acc=class_acc)
         metric_logger.update(loss_scale=loss_scale_value)
@@ -157,6 +185,7 @@ def train_one_epoch(args, model: torch.nn.Module, criterion: torch.nn.Module,
         metric_logger.update(weight_decay=weight_decay_value)
         metric_logger.update(grad_norm=grad_norm)
 
+        # update external logger
         if log_writer is not None:
             log_writer.update(loss=loss_value, head="loss")
             log_writer.update(class_acc=class_acc, head="loss")
@@ -176,9 +205,21 @@ def train_one_epoch(args, model: torch.nn.Module, criterion: torch.nn.Module,
 
 @torch.no_grad()
 def evaluate(data_loader, model, device, args, header='Test:', ch_names=None, metrics=['acc'], is_binary=True):
+    """
+    Evaluate a model on a data loader and return a metrics dict
+
+    Args:
+        data_loader (Iterable): (EEG data, label) pairs
+        header (str, optional):logger header 
+        metrics (list, optional): list of metrics used in evaluation
+
+    Returns:
+        dict: containing metric values
+    """
     input_chans = None
     if ch_names is not None:
         input_chans = utils.get_input_chans(ch_names)
+
     if is_binary:
         criterion = torch.nn.BCEWithLogitsLoss()
         confmat = ConfusionMatrix(
@@ -189,7 +230,6 @@ def evaluate(data_loader, model, device, args, header='Test:', ch_names=None, me
             task="multiclass", num_classes=4).to(device)
 
     metric_logger = utils.MetricLogger(delimiter="  ")
-    # header = 'Test:'
 
     # switch to evaluation mode
     model.eval()
@@ -202,7 +242,6 @@ def evaluate(data_loader, model, device, args, header='Test:', ch_names=None, me
         target = batch[-1]  # batch[-1] is the target/label - y
         EEG = EEG.float().to(device, non_blocking=True) / 100
         EEG = rearrange(EEG, 'B N (A T) -> B N A T', T=64)
-        # print("EEG shape is: ", EEG.shape)
 
         if is_binary:
             target = target.to(device, non_blocking=True)
@@ -216,13 +255,11 @@ def evaluate(data_loader, model, device, args, header='Test:', ch_names=None, me
             logits = model(EEG)
             loss = criterion(logits, target)
 
-        print("logits: ", logits)
-
+        # prepare targets for loss calculation
         if is_binary:
             probs = torch.sigmoid(logits).squeeze(
                 1)  # shape [B] of probabilities
             preds = (probs >= 0.5).long()
-            # print("probs shape: ", probs.shape)
             target = target.squeeze(1)  # expects [B]
         else:
             # shape [B,C] of probabilities

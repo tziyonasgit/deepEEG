@@ -1,3 +1,22 @@
+"""
+Utilities for EEGPT training and evaluation
+================================================================
+This module aggregates utilities used across the EEGPT fine-tuning pipeline,
+including:
+    - Distributed training helpers 
+    - Logging
+    - Checkpoint helper
+    - LR / WD cosine schedulers with warmup
+    - Dataset builders 
+    - Metric computation using pyhealth.
+    - Channel indexing
+
+    
+
+Original author: Guagnyu Wang, Wenchao Liu, Yuhong He, Cong Xu, Lin Ma, Haifeng Li 
+From paper: EEGPT: Pretrained Transformer for Universal and Reliable Representation of EEG Signals
+
+"""
 from scipy.stats import pearsonr
 from sklearn.metrics import mean_squared_error
 from sklearn.metrics import r2_score

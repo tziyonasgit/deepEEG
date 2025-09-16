@@ -1,3 +1,8 @@
+""" 
+Purpose: Make the bayley linear regression dataset from khula eeg data
+        
+Author: Tziyona Cohen, UCT
+"""
 from scipy.spatial.distance import cdist
 from mne.io import read_raw_eeglab
 from mne.time_frequency import psd_array_welch
@@ -120,14 +125,13 @@ def split_and_dump(params):
         data = mne.io.read_epochs_eeglab(full_file_path)
         is_raw = False
     except ValueError as e:
-        # Load as continuous data
         print(
-            f"[WARNING] {file} has less than 2 trials, loading as continuous data.")
+            f"Oh no! {file} has less than 2 trials, loading as continuous data.")
         data = mne.io.read_raw_eeglab(
             full_file_path, preload=True)
         is_raw = True
     except Exception as e2:
-        print(f"[ERROR] Failed to read raw for {file}. Error: {e2}")
+        print(f"Error occurred: Failed to read raw for {file}. Error: {e2}")
         with open("khula-process-error-files.txt", "a") as f:
             f.write(f"{file}: {str(e2)}\n")
         return  # skip this file

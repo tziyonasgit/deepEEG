@@ -1,3 +1,17 @@
+"""
+Finetuning script for EEGPT on KHULA dataset
+================================================================
+This is the main script to finetune EEGPT on the KHULA dataset i.e. runs the training and evaluation pipeline.
+
+Usage:
+    python run_class_finetuning_age.py
+    
+    
+Original author: Guagnyu Wang, Wenchao Liu, Yuhong He, Cong Xu, Lin Ma, Haifeng Li 
+From paper: EEGPT: Pretrained Transformer for Universal and Reliable Representation of EEG Signals
+Adapted by: Tziyona Cohen, UCT
+
+"""
 import argparse
 import datetime
 import numpy as np
@@ -28,6 +42,7 @@ import matplotlib.cm as cm
 from collections import defaultdict
 
 
+# ---------------- Arguments ---------------- #
 def get_args():
     parser = argparse.ArgumentParser(
         'fine-tuning and evaluation script for EEG regression', add_help=False)
@@ -199,6 +214,13 @@ def get_args():
 
 
 def get_models(args):
+    """
+    The model is instantiated with the preset/default parameters
+
+    Args:
+        args (dict): default and preset arguments
+
+    """
 
     use_channels_names = ['FPZ', 'FP2', 'AF3', 'AF4', 'F7', 'F3', 'F1', 'FZ', 'F2', 'F4', 'F8', 'FT7', 'FC5', 'FC3', 'FC1', 'FCZ', 'FC2', 'FC4', 'FC6', 'FT8', 'T7', 'C5', 'C3', 'C1', 'C2', 'C4',
                           'C6', 'T8', 'TP7', 'CP5', 'CP3', 'CP1', 'CPZ', 'CP2', 'CP4', 'CP6', 'TP8', 'P7', 'P5', 'P3', 'P1', 'PZ', 'P2', 'P4', 'P6', 'P8', 'PO7', 'PO3', 'POZ', 'PO4', 'PO8', 'O1', 'OZ', 'O2']
@@ -241,6 +263,7 @@ def get_dataset(args):
 
 
 def write_args_to_file(args, output_dir):
+    """Writes arguments to a text file in the output directory"""
     args_file = os.path.join(output_dir, "args.txt")
     with open(args_file, "w") as f:
         f.write(
@@ -323,6 +346,7 @@ def add_args_to_file(output_dir, line):
 
 def main(args, ds_init):
 
+    # ---------------- Setting up run ---------------- #
     if args.sweep:
         global run_name
         wandb.init(
@@ -337,6 +361,7 @@ def main(args, ds_init):
         print(f"lr{args.lr:.6f}@!!!!!!!")
         run_name = f"lr{args.lr:.5f}_bs{args.batch_size}_seed{args.seed}"
 
+    # setting up output and log directories
     args.output_dir = f"/scratch/chntzi001/khula/checkpoints/finetune_khula_eegpt/regression/{args.task}/{args.date}/{run_name}"
     output_dir = args.output_dir
     args.log_dir = f"/home/chntzi001/deepEEG/EEGPT/downstream/log/regression/{args.task}/{args.date}/{run_name}"
@@ -355,8 +380,6 @@ def main(args, ds_init):
 
     if ds_init is not None:
         utils.create_ds_config(args)
-
-    print(args)
 
     device = torch.device(args.device)
 
@@ -507,10 +530,7 @@ def main(args, ds_init):
     model_without_ddp = model
     n_parameters = sum(p.numel()
                        for p in model.parameters() if p.requires_grad)
-
-    # print("Model = %s" % str(model_without_ddp))
     print('number of params:', n_parameters)
-
     total_batch_size = args.batch_size * args.update_freq * utils.get_world_size()
     num_training_steps_per_epoch = len(dataset_train) // total_batch_size
     print("LR = %.8f" % args.lr)
@@ -588,7 +608,6 @@ def main(args, ds_init):
 
     # selects loss function
     criterion = torch.nn.L1Loss()
-
     print("criterion = %s" % str(criterion))
 
     utils.auto_load_model(
@@ -596,11 +615,13 @@ def main(args, ds_init):
         optimizer=optimizer, loss_scaler=loss_scaler, model_ema=model_ema)
 
     if args.eval:
-        print("$$$$$$$$$$$$$$$$$$$ Performing evaluation only, so skipping training $$$$$$$$$$$$$$$$$$$")
+        print("================== Performing evaluation (skipping training) ==================")
         for data_loader in data_loader_test:
             test_stats = evaluate(epoch, data_loader, model, device, args, header='Test:',
                                   ch_names=ch_names)
         exit(0)
+
+    print("================== Starting training ==================")
     print("ch_names before training = %s" % str(ch_names))
     print(f"Start training for {args.epochs} epochs")
     start_time = time.time()
@@ -702,6 +723,7 @@ def main(args, ds_init):
             with open(os.path.join(output_dir, textfile), mode="a", encoding="utf-8") as f:
                 f.write(json.dumps(log_stats) + "\n")
 
+    print("================== Done training ==================")
     best = {
         "epoch": best_epoch,
         "best_val_MAE": best_mae,
@@ -722,5 +744,4 @@ if __name__ == '__main__':
     opts, ds_init = get_args()
     if opts.output_dir:
         Path(opts.output_dir).mkdir(parents=True, exist_ok=True)
-    print("lr!!!! is:", opts.lr)
     main(opts, ds_init)

@@ -1,3 +1,8 @@
+""" 
+Purpose: Make the synthetic classification dataset from sine waves
+        
+Author: Tziyona Cohen, UCT
+"""
 from scipy.spatial.distance import cdist
 from mne.io import read_raw_eeglab
 import mne

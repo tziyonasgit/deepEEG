@@ -1,10 +1,32 @@
-# EEG Pretrain Transformers
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-#
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-#
+"""
+EEGPT model set-up
+================================================================
+This module adapts and documents an EEG-based transformer codebase
+for downstream infant EEG classification tasks.
+
+
+Original copyright notice:
+Copyright (c) Meta Platforms, Inc. and affiliates. All rights reserved.
+This source code is licensed under the license found in the LICENSE file
+in the root directory of this source tree.
+
+
+Notes:
+-----------------------------
+    - Tensor shape conventions are documented at each boundary (B = batch, C = channels,
+        T = time, N = num patches along time, D = feature dim, E = embed_num tokens).
+    - Rotary position embeddings (RoPE) are used in the reconstructor.
+    - Channel ordering is controlled via CHANNEL_DICT and the provided channel name list.
+    - Weight-norm constraints are provided for Conv/Linear layers used in EEGNet-style
+        channel processing and the final classifier head.
+
+
+Original EEGPT authors:
+    Guagnyu Wang, Wenchao Liu, Yuhong He, Cong Xu, Lin Ma, Haifeng Li
+    "EEGPT: Pretrained Transformer for Universal and Reliable Representation of EEG Signals"
+Adapted by:
+    Tziyona Cohen, University of Cape Town (UCT)
+"""
 
 import os
 import math
@@ -36,12 +58,26 @@ CHANNEL_DICT = {k.upper(): v for v, k in enumerate(['FP1', 'FPZ', 'FP2',
                                                     'O1', 'OZ', 'O2', ]
                                                    )}
 
-################################# Utils ######################################
+# -------------------- Utils -------------------- #
 
 
 def _no_grad_trunc_normal_(tensor, mean, std, a, b):
-    # Cut & paste from PyTorch official master until it's in a few official releases - RW
-    # Method based on https://people.sc.fsu.edu/~jburkardt/presentations/truncated_normal.pdf
+    """
+    Truncated normal initialisation.
+    Cut & paste from PyTorch official master until it's in a few official releases - RW
+    Method based on https://people.sc.fsu.edu/~jburkardt/presentations/truncated_normal.pdf
+
+    Args:
+        tensor (torch.Tensor): input
+        mean (float):
+        std (float): standard deviation
+        a (float): lower bound
+        b (float): upper bound
+
+    Returns:
+        torch.Tensor: initialised input tensor
+    """
+
     def norm_cdf(x):
         # Computes standard normal cumulative distribution function
         return (1. + math.erf(x / math.sqrt(2.))) / 2.
@@ -71,14 +107,20 @@ def _no_grad_trunc_normal_(tensor, mean, std, a, b):
 
 
 def trunc_normal_(tensor, mean=0., std=1., a=-2., b=2.):
-
+    """ Wrapper for truncated normal initialisation"""
     return _no_grad_trunc_normal_(tensor, mean, std, a, b)
 
 
 def apply_mask(mask, x):
     """
-    :param x: tensor of shape [B (batch-size), N (num-patches), C, D (feature-dim)]
-    :param mask: tensor [mN, mC] containing indices of patches in [N, C] to keep
+    Apply a patch/channel mask to a tensor.
+
+    Args:
+        x (torch.Tensor): tensor of shape [B (batch-size), N (num-patches), C, D (feature-dim)]
+        mask (orch.Tensor): tensor [mN, mC] containing indices of patches in [N, C] to keep
+
+    Returns:
+        torch.Tensor: Masked tensor with kept patches/channels
     """
     B, N, C, D = x.shape
     if len(mask.shape) == 2:
@@ -99,8 +141,14 @@ def apply_mask(mask, x):
 
 def apply_mask_t(mask_t, x):
     """
-    :param x: tensor of shape [B (batch-size), N (num-patches), C, D (feature-dim)]
-    :param mask: tensor [mN, mC] containing indices of patches in [N, C] to keep
+    Applies a time mask to the tensor.
+
+    Args:
+        x (torch.Tensor): tensor of shape [B (batch-size), N (num-patches), C, D (feature-dim)]
+        mask (orch.Tensor): tensor [mN, mC] containing indices of patches in [N, C] to keep
+
+    Returns:
+        torch.Tensor: Masked tensor with kept patches/channels
     """
     B, N, D = x.shape
     mN = mask_t.shape[0]
@@ -118,17 +166,14 @@ def repeat_interleave_batch(x, B, repeat):
     ], dim=0)
     return x
 
-# helper functions
-
 
 def exists(val):
+    # helper functions
     return val is not None
-
-# rotary embedding helper functions
 
 
 def rotate_half(x):
-
+    """Rotate last dimension pairs (x1, x2) -> (-x2, x1) for RoPE implementation."""
     # x = rearrange(x, '... (d r) -> ... d r', r = 2)
     x = x.reshape((*x.shape[:-1], x.shape[-1]//2, 2))
     x1, x2 = x.unbind(dim=-1)
@@ -137,7 +182,18 @@ def rotate_half(x):
     return x.flatten(-2)
 
 
-def apply_rotary_emb(freqs, t, start_index=0, scale=1.):
+def apply_rotary_emb(freqs, t, start_index=0, scale=1.0):
+    """
+    Apply rotary position embeddings.
+
+    Args:
+        freqs (torch.Tensor): Precomputed RoPE frequencies
+        t (torch.Tensor): target tensor
+        start_index (int, optional): 
+        scale (float, optional): scaling factor
+    Returns:
+        torch.Tensor
+    """
     freqs = freqs.to(t)
     rot_dim = freqs.shape[-1]
     end_index = start_index + rot_dim
@@ -147,10 +203,16 @@ def apply_rotary_emb(freqs, t, start_index=0, scale=1.):
     t = (t * freqs.cos() * scale) + (rotate_half(t) * freqs.sin() * scale)
     return torch.cat((t_left, t, t_right), dim=-1)
 
-################################# RoPE Model Begin ######################################
+# -------------------- RoPE Model Begin -------------------- #
 
 
 class RotaryEmbedding(nn.Module):
+    """
+    Rotary position embedding generator.
+    Produces frequency matrices for RoPE given the number of patches (channels x time)
+    and an interpolation factor for length generalisation.
+    """
+
     def __init__(
         self,
         dim,
@@ -197,12 +259,11 @@ class RotaryEmbedding(nn.Module):
 
         return freqs
 
-################################# EEGPT Model Begin ######################################
+# -------------------- EEGPT Model Begin -------------------- #
 
 
 class DropPath(nn.Module):
-    """Drop paths (Stochastic Depth) per sample  (when applied in main path of residual blocks).
-    """
+    """Drop paths (Stochastic Depth) per sample  (when applied in main path of residual blocks)."""
 
     def __init__(self, drop_prob=None):
         super(DropPath, self).__init__()
@@ -225,6 +286,8 @@ class DropPath(nn.Module):
 
 
 class MLP(nn.Module):
+    """Standard Transformer MLP block with GELU activation and dropout"""
+
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
         super().__init__()
         out_features = out_features or in_features
@@ -245,15 +308,26 @@ class MLP(nn.Module):
 
 class Attention(nn.Module):
     def __init__(self, dim, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0., is_causal=False, use_rope=False, return_attention=False):
+        """
+        Multi-head self-attention
+
+        Args:
+            dim (int): dimensionality
+            num_heads (int, optional):
+            qkv_bias (bool, optional): 
+            attn_drop (float, optional): Dropout applied in scaled-dot attention
+            proj_drop (float, optional): Dropout after output projection
+            is_causal (bool, optional):
+            use_rope (bool, optional): 
+            return_attention (bool, optional): 
+        """
         super().__init__()
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
-
         self.use_rope = use_rope
 
         # linear layer that ouputs query, key and value
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
-
         self.attn_drop = attn_drop
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
@@ -261,26 +335,18 @@ class Attention(nn.Module):
         self.return_attention = return_attention
 
     def forward(self, x, freqs=None):
-        # print("x: ", x)
         # input [batchsize, number of patches, number of channels]
         B, T, C = x.shape
-        # print("B: ", B)
-        # print("T: ", T)
-        # print("C: ", C)
         qkv = self.qkv(x).reshape(B, T, 3, self.num_heads, C //
                                   # 3,B,nh,t,d
                                   self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]  # B,nh,t,d
-        # print("q: ", q)
-        # print("k: ", k)
-        # print("v: ", v)
 
         if self.use_rope:  # RoPE
             q = apply_rotary_emb(freqs, q)
             k = apply_rotary_emb(freqs, k)
 
         if self.return_attention:
-            # print("returning attention weights...")
             if self.is_causal:
                 attn_mask = torch.ones(
                     q.size(-2), q.size(-2), dtype=torch.bool).tril(diagonal=0)
@@ -292,7 +358,6 @@ class Attention(nn.Module):
             else:
                 attn_weight = torch.softmax(
                     (q @ k.transpose(-2, -1) / math.sqrt(q.size(-1))), dim=-1)
-            # print("attn_weight is: ", attn_weight)
             return attn_weight
         # efficient attention using Flash Attention CUDA kernels
         y = torch.nn.functional.scaled_dot_product_attention(
@@ -330,7 +395,10 @@ class Block(nn.Module):
 
 
 class PatchEmbed(nn.Module):
-    """ Image to Patch Embedding
+    """ 
+    Image to Patch Embedding:
+    Input is viewed as an "image" with height = channels, width = time. A 1xK convolution
+    with stride K creates non-overlapping time patches.
     """
 
     def __init__(self, img_size=(64, 1000), patch_size=16, patch_stride=None, embed_dim=768):
@@ -354,9 +422,8 @@ class PatchEmbed(nn.Module):
         return x
 
 
-################################# Finetune Model Begin ######################################
+# -------------------- Finetune model -------------------- #
 class EEGTransformerReconstructor(nn.Module):
-    """ EEG Transformer """
 
     def __init__(
         self,
@@ -380,20 +447,40 @@ class EEGTransformerReconstructor(nn.Module):
         return_attention_layer=-1,
         **kwargs
     ):
+        """
+        Reconstructor module for EEG Transformer.
+
+        Args:
+            num_patches (tuple): (C, N) tuple from the encoder's PatchEmbed
+            patch_size (int, optional): 
+            embed_num (int, optional): number of summary tokens 
+            use_pos_embed (bool, optional): adds learned positional embedding across embed tokens
+            use_inp_embed (bool, optional):project encoder dim -> reconstructor dim via Linear
+            embed_dim (int, optional): length of token
+            reconstructor_embed_dim (int, optional): length of reconstructor token
+            depth (int, optional): number of transformer blocks
+            num_heads (int, optional): 
+            mlp_ratio (float, optional): expansion factor in MLP
+            init_std (float, optional): std for weight initialisation
+            interpolate_factor (int, optional): interpolation factor for RoPE
+            return_attention_layer (int, optional): returns attention weights. Defaults to -1.
+        """
         super().__init__()
         self.use_inp_embed = use_inp_embed
         self.use_pos_embed = use_pos_embed
         self.num_patches = num_patches
 
-        # --
+        # class token
         self.cls_token = nn.Parameter(
             torch.zeros(1, 1, reconstructor_embed_dim))
         trunc_normal_(self.cls_token, std=.02)
-        # --
+
+        # optional input projection from encoder dim -> reconstructor dim
         if use_inp_embed:
             self.reconstructor_embed = nn.Linear(
                 embed_dim, reconstructor_embed_dim, bias=True)
 
+        # optional positional embedding
         if use_pos_embed:
             self.pos_embed = nn.Parameter(torch.zeros(
                 1, 1, embed_num, reconstructor_embed_dim))
@@ -404,14 +491,15 @@ class EEGTransformerReconstructor(nn.Module):
 
         # stochastic depth decay rule
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]
-        # --
+
+        # RoPE time embeddings
         self.time_embed_dim = (reconstructor_embed_dim//num_heads)//2
         self.time_embed = RotaryEmbedding(
             dim=self.time_embed_dim, interpolate_factor=interpolate_factor)
 
         self.chan_embed = nn.Embedding(
             len(CHANNEL_DICT), reconstructor_embed_dim)
-        # --
+
         self.reconstructor_blocks = nn.ModuleList([
             Block(
                 dim=reconstructor_embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,
@@ -421,7 +509,6 @@ class EEGTransformerReconstructor(nn.Module):
         self.reconstructor_norm = norm_layer(reconstructor_embed_dim)
         self.reconstructor_proj = nn.Linear(
             reconstructor_embed_dim, patch_size, bias=True)
-        # ------
         self.init_std = init_std
 
     def get_num_layers(self):
@@ -432,7 +519,7 @@ class EEGTransformerReconstructor(nn.Module):
         return {'pos_embed', 'cls_token', 'time_embed', 'chan_embed'}
 
     def forward(self, x):
-        # -- map from encoder-dim to pedictor-dim
+        # -- map from encoder-dim to predictor-dim
         if self.use_inp_embed:
             x = self.reconstructor_embed(x)
 
@@ -462,15 +549,10 @@ class EEGTransformerReconstructor(nn.Module):
             if blk.return_attention == True:
                 return x
 
-        # x = self.reconstructor_norm(x)
-
-        # x = self.reconstructor_proj(x)
-
         return x
 
 
 class EEGTransformer(nn.Module):
-    """ EEG Transformer """
 
     def __init__(
         self,
@@ -496,23 +578,32 @@ class EEGTransformer(nn.Module):
         logdir=None,
         **kwargs
     ):
+        """
+        EEG Transformer:
+        Encoder that patchifies EEG and produces per-patch summary tokens
+
+        Args:
+            img_size (tuple, optional): (Channel, Time points) tuple defining input "image" size
+            patch_size (int, optional): temporal window length used to make each patch
+            patch_stride (_type_, optional): length between consecutive patches. Defaults to None (non-overlapping patches).
+            logdir (_type_, optional): file path to save model config
+        """
         super().__init__()
         self.num_features = self.embed_dim = embed_dim
         self.embed_num = embed_num
-
         self.num_heads = num_heads
 
-        # --
+        # patch embedding along time
         self.patch_embed = patch_module(
             img_size=img_size,
             patch_size=patch_size,
             patch_stride=patch_stride,
             embed_dim=embed_dim)
         self.num_patches = self.patch_embed.num_patches
-        # --
 
+        # channel embedding
         self.chan_embed = nn.Embedding(len(CHANNEL_DICT), embed_dim)
-        # --
+
         # stochastic depth decay rule
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]
         self.blocks = nn.ModuleList([
@@ -522,11 +613,13 @@ class EEGTransformer(nn.Module):
                 is_causal=False, use_rope=False, return_attention=(i+1) == return_attention_layer)
             for i in range(depth)])
         self.norm = norm_layer(embed_dim)
-        # ------
         self.init_std = init_std
-        self.summary_token = nn.Parameter(torch.zeros(1, embed_num, embed_dim))
 
+        # learned per-patch summary tokens
+        self.summary_token = nn.Parameter(torch.zeros(1, embed_num, embed_dim))
         trunc_normal_(self.summary_token, std=self.init_std)
+
+        # initialise weights
         self.apply(self._init_weights)
         self.fix_init_weight()
 
@@ -543,6 +636,7 @@ class EEGTransformer(nn.Module):
                 f.write(f"num_patches: {self.num_patches}\n")
 
     def prepare_chan_ids(self, channels):
+        """Map a list of channel labels to their integer indices for embedding lookup"""
         chan_ids = []
         chan_id_dict = {}
         for ch in channels:
@@ -553,6 +647,7 @@ class EEGTransformer(nn.Module):
         return torch.tensor(chan_ids).unsqueeze_(0).long()
 
     def fix_init_weight(self):
+        """Rescaling certain weights to stabilize training"""
         def rescale(param, layer_id):
             param.div_(math.sqrt(2.0 * layer_id))
 
@@ -583,27 +678,36 @@ class EEGTransformer(nn.Module):
         return {'chan_embed', 'summary_token'}
 
     def forward(self, x, chan_ids=None, mask_x=None, mask_t=None):
+        """
+        Forward pass through the encoder.
+
+        Args:
+            x (torch.Tensor): [B, C, T] EEG batch (or [B, C, 1, T] which will be flattened)
+            chan_ids (torch.Tensor, optional): [1, C] int tensor of channel indices for embedding lookup.
+            mask_x (torch.Tensor, optional): [mN, mC] mask to select patch/channel subset
+            mask_t (torch.Tensor, optional): [mN] mask to select subset of time patches at the end
+
+        Returns:
+            torch.Tensor
+        """
         # x.shape B, C, T
         # mask_x.shape mN, mC
         # mask_t.shape mN
 
-        # -- patchify x
+        # patchify x
         x = self.patch_embed(x)
         B, N, C, D = x.shape
 
         assert N == self.num_patches[1] and C == self.num_patches[
             0], f"{N}=={self.num_patches[1]} and {C}=={self.num_patches[0]}"
 
+        # Prepare channel ids if not supplied
         if chan_ids is None:
             chan_ids = torch.arange(0, C)
-            # print("chan_ids = torch.arange(0, C): ", chan_ids)
         chan_ids = chan_ids.to(x)
-        # print("chan_ids.to(x): ", chan_ids)
 
         # -- add channels positional embedding to x
         # (1,C) -> (1,1,C,D)
-        # print("self.chan_embed: ", self.chan_embed)
-        # print("chan_ids: ", chan_ids)
         x = x + self.chan_embed(chan_ids.long()).unsqueeze(0)
 
         if mask_x is not None:
@@ -611,13 +715,14 @@ class EEGTransformer(nn.Module):
             x = apply_mask(mask_x, x)  # B, mN, mC, D
             B, N, C, D = x.shape
 
+        # merge batch and patch dims
         x = x.flatten(0, 1)  # BmN, mC, D
 
-        # -- concat summary token
+        # concat summary token
         summary_token = self.summary_token.repeat((x.shape[0], 1, 1))
         x = torch.cat([x, summary_token], dim=1)  # BmN, mC+embed_num, D
 
-        # -- fwd prop
+        # forward prop
         for i, blk in enumerate(self.blocks):
             x = blk(x)  # B*N, mC+1, D
             if blk.return_attention == True:
@@ -630,7 +735,6 @@ class EEGTransformer(nn.Module):
 
         x = x.flatten(-2)
         x = x.reshape((B, N, -1))
-        # -- reshape back
 
         if mask_t is not None:
             mask_t = mask_t.to(x.device)
@@ -642,6 +746,7 @@ class EEGTransformer(nn.Module):
 
 
 def getOutput(name, theOutputs):
+    """Create a forward hook that saves layer outputs into a dict """
     # the hook signature
     def hook(model, input, output):
         theOutputs[name] = output.detach().to('cpu')
@@ -667,6 +772,8 @@ class Conv1dWithConstraint(nn.Conv1d):
 
 
 class LinearWithConstraint(nn.Linear):
+    """Linear layer with weight re-normalisation constraint."""
+
     def __init__(self, *args, doWeightNorm=True, max_norm=1, **kwargs):
         self.max_norm = max_norm
         self.doWeightNorm = doWeightNorm
@@ -711,12 +818,22 @@ class EEGPTClassifier(nn.Module):
                  max_norm_chan_conv=1,
                  logdir=None,
                  ** kwargs):
+        """
+        Classifier head built on top of EEGTransformer encoder
+
+        Args:
+            num_classes (int): number of output classes
+            in_channels (int, optional): number of EEG channels
+            img_size (list, optional): [Channels, Timepoints] used by PatchEmbed 
+            patch_stride (int, optional): stride between consecutive patches
+            use_chan_conv (bool, optional): adds initial channel convolution block
+            max_norm_chan_conv (int, optional): max-norm constraint for channel conv
+        """
 
         super().__init__()
 
         self.use_chan_conv = use_chan_conv
         if use_chan_conv:
-
             self.chan_conv = torch.nn.Sequential(
                 Conv2dWithConstraint(in_channels, img_size[0], 1),
                 nn.BatchNorm2d(img_size[0]),
@@ -745,6 +862,7 @@ class EEGPTClassifier(nn.Module):
             norm_layer=partial(nn.LayerNorm, eps=1e-6),
             logdir=logdir)
 
+        # reconstructor config, but not actually implemented in finetune model
         reconstructor = EEGTransformerReconstructor(
             num_patches=target_encoder.num_patches,
             patch_size=32*2,
@@ -770,6 +888,7 @@ class EEGPTClassifier(nn.Module):
         self.norm = nn.Identity() if use_mean_pooling else norm_layer(embed_dim)
         self.fc_norm = norm_layer(embed_dim) if use_mean_pooling else None
         numPatches = target_encoder.num_patches[1]
+        # Head projects concatenated per-patch features to logits
         self.head = nn.Sequential(
             # nn.Linear(4*self.embed_dim*31,256),
             # nn.ReLU(),
@@ -811,8 +930,11 @@ class EEGPTClassifier(nn.Module):
 
     def forward(self, x, chan_ids=None, return_patch_tokens=False, return_all_tokens=False, **kwargs):
         '''
-        x: [batch size, number of electrodes, Times]
-        For example, for an EEG sample of 4 seconds with 64 electrodes, x will be [batch size, 64, 4*256]
+        Forward pass for classifier head
+
+        Args:
+            x: [batch size, number of electrodes, Times]
+            For example, for an EEG sample of 4 seconds with 64 electrodes, x will be [batch size, 64, 4*256]
         '''
         if len(x.shape) == 4:
             x = x.flatten(2)
@@ -828,6 +950,7 @@ class EEGPTClassifier(nn.Module):
         return super().load_state_dict(state_dict, strict)
 
 
+# test to check pipeline runs and report FLOPs/params
 if __name__ == "__main__":
     use_channels_names = ['FPZ', 'FP2', 'AF3', 'AF4', 'F7', 'F3', 'F1', 'FZ', 'F2', 'F4', 'F8', 'FT7', 'FC5', 'FC3', 'FC1', 'FCZ', 'FC2', 'FC4', 'FC6', 'FT8', 'T7', 'C5', 'C3', 'C1', 'C2', 'C4',
                           'C6', 'T8', 'TP7', 'CP5', 'CP3', 'CP1', 'CPZ', 'CP2', 'CP4', 'CP6', 'TP8', 'P7', 'P5', 'P3', 'P1', 'PZ', 'P2', 'P4', 'P6', 'P8', 'PO7', 'PO3', 'POZ', 'PO4', 'PO8', 'O1', 'OZ', 'O2']

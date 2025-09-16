@@ -21,6 +21,17 @@ def list_pickles(folder):
 
 
 def get_score(task, y_dict, default=100):
+    """
+    Returns the score (or target value) for the given task from the label dictionary.
+
+    Args:
+        task (str): task key e.g. "COG", "LANG", "MOT", "AGE"
+        y_dict (dict): dictionary containing labels for various tasks
+        default (float, optional): default value if task not found. Defaults to 100 for Bayley scale
+
+    Returns:
+        float or None: extracted label value or None if not found
+    """
     val = None
 
     if isinstance(y_dict, dict):  # gets value for the actual task: COG, LANG, MOT, age
@@ -35,10 +46,17 @@ def get_score(task, y_dict, default=100):
 
 
 def load_sample(folder_path, task):
-    # print("Loading:", folder_path)
+    """
+    Returns the features and label from a sample
+
+    Args:
+        folder_path (str): Path to .pkl file
+        task (str): Label key to extract
+    Returns:
+        tuple: (features, label) or (None, None) if missing.
+    """
     age = os.path.basename(folder_path).split('_')[3]      # '24'
     age_int = int(age)
-    # print("Age int is: ", age_int)
     with open(folder_path, "rb") as fh:
         sample = pickle.load(fh)
     X, y = sample["X"], get_score(f"{age_int}M_AGE", sample.get("y", {}))
@@ -53,6 +71,7 @@ def load_sample(folder_path, task):
 
 
 def fit_scalers(train_files, task="COG", batch_size=256):
+    # normalises input features and output labels
     x_scaler, y_scaler = StandardScaler(), StandardScaler()
     n = 0
     for X_batch, y_batch in load_batch(train_files, batch_size=batch_size, task=task, shuffle=False):
@@ -144,6 +163,8 @@ def evaluate_model(model, x_scaler, y_scaler,
         all_ypred.append(y_pred)
     all_ytrue = np.concatenate(all_ytrue) if all_ytrue else np.array([])
     all_ypred = np.concatenate(all_ypred) if all_ypred else np.array([])
+
+    # final metric calculations
     mae_global = mean_absolute_error(all_ytrue, all_ypred)
     rmse_global = np.sqrt(mean_squared_error(all_ytrue, all_ypred))
     r2 = r2_score(all_ytrue, all_ypred)
@@ -151,6 +172,7 @@ def evaluate_model(model, x_scaler, y_scaler,
     print(
         f"OVERALL: Test MAE={mae_global:.6f}  RMSE={rmse_global:.6f}  R2={r2:.6f}", flush=True)
 
+    # baseline metric calculations
     mean_const = np.full_like(all_ytrue, all_ytrue.mean(), dtype=float)
     median_const = np.full_like(all_ytrue, np.median(all_ytrue), dtype=float)
     base_mean_mae = mean_absolute_error(all_ytrue, mean_const)
@@ -221,5 +243,3 @@ if __name__ == '__main__':
 
     evaluate_model(model, x_scaler, y_scaler,
                    test_files, batch_size=batch_size, save_csv_path=save_csv, task=task)
-
-# "/home/chntzi001/deepEEG/linearReg/preds.csv"

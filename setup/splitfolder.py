@@ -21,7 +21,7 @@ with open(bayley_csv, newline='') as f:
         if subid and cog:
             cog_map[subid] = int(cog)
         else:
-            print(f"ERROR for SUBID{subid} and/or COG score{cog}")
+            print(f"Oh no! Error for SUBID{subid} and/or COG score{cog}")
 
 # check folders for subject file
 subject_files = defaultdict(list)  # list of subject file names
@@ -43,18 +43,17 @@ else:
         subject_id = m.group(1)
         if subject_id in cog_map:  # keep only if we have a label
             label = cog_map[subject_id]
-            # dictionary of SUBID: [filename, label]
             subject_files[subject_id].append((filename, label))
         else:
             pass  # no label for this subject, skip
 
-# subject-level split
+
 all_subjects = list(subject_files.keys())
 random.seed(42)
 random.shuffle(all_subjects)
 
 n_total = len(all_subjects)
-# n_total =  30 # For testing purposes, limit to 100 subjects
+# n_total =  30 # For testing purposes
 n_train = int(n_total * 0.8)
 n_val = int(n_total * 0.1)
 
@@ -85,4 +84,4 @@ for split_name, subjects in splits.items():
                     f.writelines(src_path + "_" + dst_path + "\n")
 
 
-print("✅ Done: raw data organized by split and session.")
+print("Done: raw data organised by split and session.")
